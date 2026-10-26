@@ -26,3 +26,14 @@ The optional Hotspot feature can pause security updates and leaves update suppre
 - Local installation: build 76 is running from `/Applications/NetworkMonitor.app`. Historical row counts were preserved (sessions 1, apps 19, traffic 2, app_traffic 32). The recorded child matches the running app/nettop relationship and its recovery file has mode 0600.
 - Rollback app, preferences and stopped SQLite data snapshot: `backups/before-security-20261026-171549` (Git-ignored). Hotspot mode remains off and its privileged components remain absent.
 - Login-item settings were not modified. Re-reading the system BTM database and reading app UI timed out; next-login behavior has not been re-accepted after this local replacement.
+
+## Proxy attribution installation
+
+- Feature code: local branch `codex/proxy-attribution`, commit `dd3be32`. Native ad-hoc-signed build 77 was installed at `/Applications/NetworkMonitor.app`; all installed bundle files matched the verified build.
+- Validation: all 475 tests / 1503 assertions passed, including the real-nettop localhost fixture and existing live sampling/lifecycle/CPU tests. No live checks were skipped and no real speed test ran.
+- Runtime: original apps including ChatGPT and Google Chrome accumulated new ordinary-app samples, Nano accumulated only in the separate transport table, and every one of the 54 pre-upgrade per-app history rows retained at least its previous bytes. Existing SQLite app rows were not relabelled or reassigned.
+- Both nettop children matched the running app, UID, executable path and kernel start time in separate mode-0600 records. A six-second runtime sample measured about 1.49% of one CPU core across both children; this is a bounded observation, not a battery benchmark.
+- Preferences were byte-value equivalent after plist decoding (no changed keys). Hotspot remained off; privileged helper, sudoers entry and LaunchDaemon remained absent. No internet socket was open by the monitoring app in the read-only snapshot.
+- Rollback App, stopped local data and preferences: `backups/before-proxy-20261026-182822` (mode 0700, Git-ignored), with `runtime-verification.json`. The earlier security rollback remains intact.
+- Proxy configuration and login-item registration were not changed. Menu/history views compile and their runtime data path is verified; visual layout and next-login relaunch were not manually re-accepted during this replacement.
+- This is a local installation only. Nothing was pushed, no issue/PR/release was created, and no repository settings were changed.
