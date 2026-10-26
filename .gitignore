@@ -17,3 +17,6 @@ Package.resolved
 *.xcuserstate
 xcuserdata/
 DerivedData/
+
+# Local rollback copies may contain private settings and usage history.
+/backups/
