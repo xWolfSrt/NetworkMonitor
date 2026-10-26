@@ -40,14 +40,14 @@ echo "==> Quitting the app"
 # nettop child process with it.
 pkill -f "${APP_NAME}.app/Contents/MacOS/${APP_NAME}" 2>/dev/null || true
 sleep 1
-# The pattern must match what NettopStream actually spawns. It used to read
-# `nettop -P -x -d -L 0`, which never matched anything: `-P` was dropped when
-# per-connection rows became necessary for the LAN/internet split (§3.7), and
-# the real command line starts `nettop -n -x -d -L 0`. For however long that
-# went unnoticed, every orphaned nettop survived uninstall — and an orphan
-# spins at over a core. Matching on the stable prefix rather than the whole
-# line so a future flag change cannot silently break it again.
-pkill -f "nettop -n -x -d" 2>/dev/null || true
+# Only a child recorded by this app may be recovered. The app verifies the
+# kernel start time, owner, executable path and orphan status before signalling.
+for app_bundle in "$DEST" "build/${APP_NAME}.app"; do
+  if [ -x "${app_bundle}/Contents/MacOS/${APP_NAME}" ]; then
+    "${app_bundle}/Contents/MacOS/${APP_NAME}" --reap-nettop-orphan
+    break
+  fi
+done
 
 # Restore before deleting. Hotspot metering changes things this app does not
 # own — other applications' update preferences, LaunchAgents — and the only

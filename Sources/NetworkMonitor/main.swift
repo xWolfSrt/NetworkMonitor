@@ -18,6 +18,13 @@ if CommandLine.arguments.contains("--unregister-login-item") {
     exit(0)
 }
 
+// Uninstall recovery uses the same recorded kernel identity as normal startup.
+// It must never scan command lines or signal another application's nettop.
+if CommandLine.arguments.contains("--reap-nettop-orphan") {
+    NettopChildTracker().reapRecordedOrphan()
+    exit(0)
+}
+
 // The other uninstall hook, and the more important one. Every metering change is
 // made to something this app does not own — another app's update preference, a
 // LaunchAgent — and the only record of how to put them back is
