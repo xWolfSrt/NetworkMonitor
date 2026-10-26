@@ -40,6 +40,8 @@ public struct NetworkBucket: Codable, Equatable {
     /// Per-app attribution from nettop. Sums close to, but not exactly, the
     /// interface totals — see `UsageStore` notes.
     public var apps: [String: AppTotals] = [:]
+    /// Forwarding-process totals are informative, never added to app usage again.
+    public var proxyTransports: [String: AppTotals] = [:]
     /// LAN bytes seen by `nettop`, kept out of every figure the app displays.
     ///
     /// Tracked rather than discarded because the headline comes from the kernel's
@@ -91,6 +93,7 @@ public struct NetworkBucket: Codable, Equatable {
         localBytesIn = 0
         localBytesOut = 0
         apps = [:]
+        proxyTransports = [:]
         countingSince = date
     }
 }
@@ -107,6 +110,7 @@ extension NetworkBucket {
             interfaceBytesIn: try container.decodeIfPresent(Int64.self, forKey: .interfaceBytesIn) ?? 0,
             interfaceBytesOut: try container.decodeIfPresent(Int64.self, forKey: .interfaceBytesOut) ?? 0,
             apps: try container.decodeIfPresent([String: AppTotals].self, forKey: .apps) ?? [:],
+            proxyTransports: try container.decodeIfPresent([String: AppTotals].self, forKey: .proxyTransports) ?? [:],
             localBytesIn: try container.decodeIfPresent(Int64.self, forKey: .localBytesIn) ?? 0,
             localBytesOut: try container.decodeIfPresent(Int64.self, forKey: .localBytesOut) ?? 0,
             kind: try container.decodeIfPresent(NetworkFingerprint.Kind.self, forKey: .kind) ?? .other,
@@ -136,6 +140,7 @@ struct PersistedState: Codable {
     /// More than one when a router's 2.4 and 5 GHz bands are named apart.
     /// Optional, so an older store still decodes.
     var wifiNames: [String: [String]]?
+    var proxyAttributionStartedAt: Date? = nil
 
     static func empty(now: Date = Date(), calendar: Calendar = .current) -> PersistedState {
         PersistedState(dayStart: calendar.startOfDay(for: now), labels: [:], buckets: [:],
@@ -208,19 +213,27 @@ public final class UsageStore {
     /// because "how much internet did this app use" is the question being answered.
     public func recordApps(_ entries: [(identity: AppIdentity, bytesIn: Int64, bytesOut: Int64)],
                            localBytesIn: Int64 = 0, localBytesOut: Int64 = 0,
-                           now: Date = Date()) {
+                           proxyTransportKeys: Set<String> = [], now: Date = Date()) {
         rolloverIfNeeded(now: now)
         withCurrentBucket(now: now) { bucket in
             bucket.localBytesIn += localBytesIn
             bucket.localBytesOut += localBytesOut
             for entry in entries where entry.bytesIn > 0 || entry.bytesOut > 0 {
                 Self.absorbPreAdoptionRow(for: entry.identity, in: &bucket)
-                var totals = bucket.apps[entry.identity.key] ?? AppTotals(
+                let isTransport = proxyTransportKeys.contains(entry.identity.key)
+                var totals = (isTransport ? bucket.proxyTransports[entry.identity.key]
+                                          : bucket.apps[entry.identity.key]) ?? AppTotals(
                     displayName: entry.identity.displayName,
                     bundlePath: entry.identity.bundlePath,
                     isSystem: entry.identity.isSystem,
                     parent: entry.identity.parent,
                     bytesIn: 0, bytesOut: 0, lastActive: now)
+                // Keep the existing bucket's proxy-process bytes as an aggregate;
+                // never invent which original apps consumed that past traffic.
+                if isTransport, let legacy = bucket.apps.removeValue(forKey: entry.identity.key) {
+                    totals.bytesIn += legacy.bytesIn
+                    totals.bytesOut += legacy.bytesOut
+                }
                 totals.bytesIn += entry.bytesIn
                 totals.bytesOut += entry.bytesOut
                 totals.lastActive = now
@@ -228,11 +241,12 @@ public final class UsageStore {
                 totals.displayName = entry.identity.displayName
                 totals.bundlePath = entry.identity.bundlePath
                 totals.parent = entry.identity.parent
-                bucket.apps[entry.identity.key] = totals
+                if isTransport { bucket.proxyTransports[entry.identity.key] = totals }
+                else { bucket.apps[entry.identity.key] = totals }
             }
         }
         history?.recordApps(entries, localBytesIn: localBytesIn, localBytesOut: localBytesOut,
-                            now: now)
+                            proxyTransportKeys: proxyTransportKeys, now: now)
     }
 
     /// Folds a row left behind by a version that could not adopt this process
@@ -351,7 +365,7 @@ public final class UsageStore {
     /// a permanent "No Connection" entry holding a few KB.
     private func absorbOfflineBucket(now: Date) {
         let offlineID = NetworkFingerprint.offline.id
-        guard let orphan = state.buckets[offlineID], orphan.interfaceTotal > 0 || !orphan.apps.isEmpty
+        guard let orphan = state.buckets[offlineID], orphan.interfaceTotal > 0 || !orphan.apps.isEmpty || !orphan.proxyTransports.isEmpty
         else {
             state.buckets.removeValue(forKey: offlineID)
             return
@@ -362,6 +376,14 @@ public final class UsageStore {
             bucket.interfaceBytesOut += orphan.interfaceBytesOut
             bucket.localBytesIn += orphan.localBytesIn
             bucket.localBytesOut += orphan.localBytesOut
+            for (key, totals) in orphan.proxyTransports {
+                if var existing = bucket.proxyTransports[key] {
+                    existing.bytesIn += totals.bytesIn
+                    existing.bytesOut += totals.bytesOut
+                    existing.lastActive = max(existing.lastActive, totals.lastActive)
+                    bucket.proxyTransports[key] = existing
+                } else { bucket.proxyTransports[key] = totals }
+            }
             for (key, totals) in orphan.apps {
                 if var existing = bucket.apps[key] {
                     existing.bytesIn += totals.bytesIn
@@ -418,6 +440,32 @@ public final class UsageStore {
     }
 
     // MARK: Reads
+
+    public func identifyProxyTransports(appKeys: Set<String>) {
+        let keys = currentBucket.apps.compactMap { key, totals in
+            appKeys.contains(totals.parent?.key ?? key) ? key : nil
+        }
+        guard !keys.isEmpty else { return }
+        withCurrentBucket(now: Date()) { bucket in
+            for key in keys {
+                guard let previous = bucket.apps.removeValue(forKey: key) else { continue }
+                if var total = bucket.proxyTransports[key] {
+                    total.bytesIn += previous.bytesIn
+                    total.bytesOut += previous.bytesOut
+                    total.lastActive = max(total.lastActive, previous.lastActive)
+                    bucket.proxyTransports[key] = total
+                } else { bucket.proxyTransports[key] = previous }
+            }
+        }
+    }
+
+    public var proxyAttributionStartedAt: Date? { state.proxyAttributionStartedAt }
+
+    public func noteProxyAttribution(now: Date = Date()) {
+        guard state.proxyAttributionStartedAt == nil else { return }
+        state.proxyAttributionStartedAt = now
+        dirty = true
+    }
 
     public var dayStart: Date { state.dayStart }
 

@@ -23,6 +23,11 @@ public struct HistoryView: View {
             navigation
             filterBar
             summary
+            if let since = model.proxyAttributionStartedAt {
+                Text("Proxy attribution since " + since.formatted(.dateTime.month().day().hour().minute())
+                     + ". Earlier traffic is unchanged. Proxy transport is not added again.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
             HistoryChart(model: model)
             legend
             Divider()
@@ -214,7 +219,7 @@ public struct HistoryView: View {
 
     private var isListEmpty: Bool {
         switch model.tab {
-        case .apps:     return report.apps.isEmpty && report.systemRows.isEmpty
+        case .apps:     return report.apps.isEmpty && report.systemRows.isEmpty && report.proxyTransports.isEmpty
         case .networks: return report.networks.isEmpty
         case .sessions: return report.sessions.isEmpty
         }
@@ -273,6 +278,17 @@ public struct HistoryView: View {
                     appRow(row, largest: largest, indented: true)
                 }
             }
+        }
+        ForEach(report.proxyTransports) { row in
+            HStack(spacing: 8) {
+                Image(systemName: "arrow.left.arrow.right")
+                Text(row.displayName + " · Proxy transport").lineLimit(1)
+                Spacer()
+                Text(ByteFormat.bytes(row.total)).monospacedDigit()
+            }
+            .font(.system(size: 12)).foregroundStyle(.secondary)
+            .frame(height: 38)
+            .help("Forwarding-process totals are separate from app usage and are omitted from the per-app CSV sum.")
         }
     }
 

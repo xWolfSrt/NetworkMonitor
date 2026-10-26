@@ -69,7 +69,7 @@ public struct MenuBarPopoverView: View {
     /// Deriving the height instead makes the very first layout correct, so the
     /// popover is placed once against a size that is already final.
     private var listHeight: CGFloat {
-        PopoverMetrics.listHeight(appRows: model.rows.count,
+        PopoverMetrics.listHeight(appRows: model.rows.count + model.proxyTransportRows.count,
                                   expandedChildRows: expandedChildRows,
                                   systemRowCount: model.systemRows.count,
                                   systemExpanded: model.systemExpanded,
@@ -78,7 +78,7 @@ public struct MenuBarPopoverView: View {
 
     /// True only when there are genuinely more rows than fit.
     private var listScrolls: Bool {
-        PopoverMetrics.scrolls(appRows: model.rows.count,
+        PopoverMetrics.scrolls(appRows: model.rows.count + model.proxyTransportRows.count,
                                expandedChildRows: expandedChildRows,
                                systemRowCount: model.systemRows.count,
                                systemExpanded: model.systemExpanded,
@@ -113,7 +113,7 @@ public struct MenuBarPopoverView: View {
                     SpeedTestStrip(speedTest: speedTest)
                     Divider()
                 }
-                if model.rows.isEmpty && model.systemRows.isEmpty {
+                if model.rows.isEmpty && model.systemRows.isEmpty && model.proxyTransportRows.isEmpty {
                     emptyState
                 } else {
                     list
@@ -132,6 +132,7 @@ public struct MenuBarPopoverView: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text("Total")
+                    .help("Physical internet traffic. App usage and proxy transport measure different stages and must not be added together.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                 // The badge sits on the figure's row, not the header's: it
@@ -151,6 +152,12 @@ public struct MenuBarPopoverView: View {
                             .foregroundStyle(.orange)
                     }
                 }
+                if !model.proxyTransportRows.isEmpty, let since = model.proxyAttributionStartedAt {
+                    Text("Proxy attribution since " + since.formatted(.dateTime.month().day().hour().minute()))
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .help("Earlier proxy traffic is kept as an aggregate; it cannot be reassigned to past apps.")
+                }
                 if let summary = gotThroughSummary {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.down.circle.fill")
@@ -169,6 +176,16 @@ public struct MenuBarPopoverView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle")
                         Text("Per-app figures paused")
+                    }
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .help("macOS's nettop couldn't start (\(failure)). The total is still "
+                          + "counted, and NetworkMonitor keeps trying.")
+                }
+                if let failure = model.proxyAttributionFailure {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle")
+                        Text("Proxy attribution figures paused")
                     }
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -211,6 +228,9 @@ public struct MenuBarPopoverView: View {
                     appRow(row)
                 }
                 if !model.systemRows.isEmpty { systemSection }
+                ForEach(model.proxyTransportRows) { row in
+                    proxyTransportRow(row)
+                }
             }
             .padding(.vertical, PopoverMetrics.listVerticalPadding / 2)
             // Applied here rather than to the ScrollView so it animates the rows
@@ -263,6 +283,16 @@ public struct MenuBarPopoverView: View {
                            fraction: fraction(of: child.total), indented: true)
             }
         }
+    }
+
+    private func proxyTransportRow(_ row: UsageRow) -> some View {
+        let labelled = UsageRow(id: row.id, displayName: row.displayName + " · Proxy transport",
+                                bytesIn: row.bytesIn + row.children.reduce(0) { $0 + $1.bytesIn },
+                                bytesOut: row.bytesOut + row.children.reduce(0) { $0 + $1.bytesOut },
+                                bundlePath: row.bundlePath, isSystem: row.isSystem,
+                                isActive: row.isActive)
+        return AppRowView(row: labelled, icon: model.icon(for: row), fraction: 0, isMuted: true)
+            .help("Includes traffic forwarded for other apps. Shown separately, not added to app usage again.")
     }
 
     /// Daemons are collapsed by default. mDNSResponder alone was measured at

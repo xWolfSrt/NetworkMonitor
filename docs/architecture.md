@@ -1,6 +1,6 @@
 # Architecture
 
-NetworkMonitor is one menu bar process. It runs `nettop` as a long-lived child, and can
+NetworkMonitor is one menu bar process. It runs two scoped, long-lived `nettop` children, and can
 optionally install a small root helper for [Hotspot mode](hotspot-mode.md). Everything
 else is in-process, and nothing talks to the network except a
 [speed test](speed-test.md) you start.
@@ -11,7 +11,7 @@ else is in-process, and nothing talks to the network except a
 flowchart LR
     subgraph mac["macOS"]
         K["Kernel byte counters<br/>sysctl NET_RT_IFLIST2"]
-        N["nettop<br/>long-lived child, on a PTY"]
+        N["nettop external + loopback<br/>two owned children, each on a PTY"]
         P["NWPathMonitor<br/>route + configd: gateway MAC"]
         E["Power source, Low Power Mode,<br/>display sleep, screen lock"]
     end
@@ -84,11 +84,11 @@ suspended: a 20 MB download was recorded at 99.9% of the kernel's own count.
 ### nettop: who used it
 
 macOS has no public API for network use per process, but it ships `nettop`, which works
-without privileges, even for processes owned by root. NetworkMonitor runs **one
-long-lived** `nettop`:
+without privileges, even for processes owned by root. NetworkMonitor keeps separate long-lived external and loopback views:
 
 ```
 nettop -n -x -d -L 0 -s <1|3|10> -t external -J time,bytes_in,bytes_out
+nettop -n -x -d -L 0 -s <1|3|10> -t loopback -J time,bytes_in,bytes_out
 ```
 
 | Flag | Why |
@@ -98,7 +98,8 @@ nettop -n -x -d -L 0 -s <1|3|10> -t external -J time,bytes_in,bytes_out
 | `-d` | **Delta mode.** Cumulative totals fall when sockets close, so diffing them under-counted browsers |
 | `-L 0` | CSV output, unlimited samples |
 | `-s N` | Seconds per sample, from the power profile. Each sample is a delta, so a longer interval changes freshness, not totals |
-| `-t external` | All non-loopback interfaces: keeps VPN traffic, drops localhost chatter from dev servers |
+| `-t external` | Direct non-loopback process counters; keeps VPN traffic |
+| `-t loopback` | Only confirmed client-side TCP bytes to an enabled local system-proxy endpoint are attributed; other localhost totals stay excluded |
 | no `-P` | `-P` collapses each process to one row and throws away the per-connection rows that carry the remote address |
 
 <a id="nettop"></a>How it's run matters as much as the flags:
@@ -122,8 +123,9 @@ nettop -n -x -d -L 0 -s <1|3|10> -t external -J time,bytes_in,bytes_out
   screen sleep or the popover.
 - **Never orphaned.** Replacing it detaches its termination handler, sends `SIGTERM` and
   escalates to `SIGKILL`. Quit signals are routed through a normal quit. Any `nettop`
-  left behind by a crash is reaped at the next launch. (A `pkill` of the app once left
-  one holding 1.4 cores.)
+  left behind by a crash is considered only if one of the two app-private child records
+  matches its kernel PID/start time/UID/executable and it is now an orphan. Unrecorded
+  processes are never guessed to be ours.
 
 ### From process to app
 
@@ -154,14 +156,29 @@ Each connection's remote address is classified (`TrafficScope.swift`):
 | Scope | Addresses | Effect |
 |---|---|---|
 | internet | everything else, including CGNAT `100.64/10`, and anything unparseable | counted |
-| local unicast | `10/8`, `172.16/12`, `192.168/16`, `169.254/16`, loopback, IPv6 link-local and ULA | left out of app rows, **subtracted** from the total |
+| local unicast | `10/8`, `172.16/12`, `192.168/16`, `169.254/16`, IPv6 link-local and ULA | left out of app rows, **subtracted** from the total |
+| loopback | `127/8`, `::1` and mapped loopback | never subtracted from physical counters; confirmed proxy-client TCP bytes are attributed once, ordinary localhost usage is excluded |
 | local multicast | `224/4`, broadcast, `ff00::/8`, and wildcard sockets on mDNS, SSDP, DHCP and similar ports | left out of app rows, **not** subtracted |
 
 Multicast isn't subtracted because `nettop` over-reports it: `mDNSResponder`'s socket
 listens on several interfaces at once and `nettop` bills its full count to each. Measured
 claims came out at least 12.6 times what the interface physically carried. Anything
-that can't be classified counts as internet, because **under-reporting is the one error
-this app can't afford**.
+that cannot be classified in the external view retains the direct-counter fallback.
+The loopback view is stricter: a missing socket row is never evidence of internet use.
+
+### Explicit local system proxies
+
+`SystemProxyEndpoints` reads only enabled HTTP/HTTPS/SOCKS loopback endpoints from
+SystemConfiguration. A client socket whose remote endpoint matches one of those listeners
+credits its original process. The opposite socket identifies the forwarding app; its
+external bytes appear as **Proxy transport**, outside the app ranking and lower bound.
+Physical totals are never increased by adding payload and transport bytes together.
+
+Proxy transport has a separate current-bucket map and additive SQLite
+`proxy_transport_traffic` table. Old SQLite app history remains unchanged. The activation
+time is displayed because earlier Nano bytes cannot be assigned to original apps.
+PAC/TUN-only traffic, negotiated UDP relays and very short closed connections are outside
+this attribution contract. See [local proxy attribution](agent-context/proxy-attribution.md).
 
 The headline is then clamped, per direction:
 

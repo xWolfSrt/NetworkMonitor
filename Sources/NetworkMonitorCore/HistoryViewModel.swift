@@ -177,6 +177,8 @@ public final class HistoryViewModel: ObservableObject {
         monitor.store.displayLabel(for: id, defaultLabel: defaultLabel)
     }
 
+    public var proxyAttributionStartedAt: Date? { monitor.store.proxyAttributionStartedAt }
+
     public var filteredNetworkName: String? {
         guard let id = filter.networkID else { return nil }
         let fallback = report.networks.first { $0.id == id }?.defaultLabel ?? "Network"

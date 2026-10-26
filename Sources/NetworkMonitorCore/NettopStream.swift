@@ -8,6 +8,10 @@ import Foundation
 /// unusable — see `NettopParser`), pay process-spawn cost 86,400 times a day,
 /// and discard a priming sample on every single poll.
 public final class NettopStream {
+    public enum InterfaceScope: String { case external, loopback }
+    private let interfaceScope: InterfaceScope
+    private var lastProxyProcesses: [Int32: String] = [:]
+    public var onProxyProcesses: (([Int32: String]) -> Void)?
 
     /// - `-n` numeric addresses. Two reasons: the classifier in `RemoteEndpoint`
     ///   needs an address rather than `ncmrsa-al-in-f5.1e100.net`, and without it
@@ -18,28 +22,30 @@ public final class NettopStream {
     /// - `-L 0` CSV logging mode, unlimited samples
     /// - `-s N` one sample every N seconds, set by `PowerProfile`. Each sample is a
     ///   delta, so a longer interval changes the figures' age, not their total.
-    /// - `-t external` all non-loopback interfaces: keeps VPN tunnel traffic,
-    ///   drops localhost chatter from dev servers
+    /// - `-t external` preserves reliable direct-process counters; a separate
+    ///   `-t loopback` view attributes only confirmed proxy-client socket rows.
     /// - `-J …` only the columns we read
     ///
     /// **`-P` is deliberately absent.** It collapses output to one row per process,
     /// which discards the per-socket rows — and those rows carry the remote address
     /// that separates internet traffic from LAN traffic (`RemoteEndpoint`). Without
     /// them, mirroring to an Apple TV over the router reads as internet usage.
-    static func arguments(sampleInterval: Int) -> [String] {
+    static func arguments(sampleInterval: Int, scope: InterfaceScope) -> [String] {
         [
             "-n", "-x", "-d", "-L", "0", "-s", "\(max(sampleInterval, 1))",
-            "-t", "external",
+            "-t", scope.rawValue,
             "-J", "time,bytes_in,bytes_out",
         ]
     }
 
     private let executable: String
-    private let childTracker = NettopChildTracker()
+    private let proxyEndpointsProvider: () -> Set<LocalProxyEndpoint>
+    private var lastProxyRefresh = Date.distantPast
+    private let childTracker: NettopChildTracker
     private let queue = DispatchQueue(label: "com.networkmonitor.nettop")
 
     private var process: Process?
-    private var parser = NettopParser()
+    private var parser: NettopParser
     private var stopping = false
     private var restartDelay: TimeInterval = 1
     private var restarting = false
@@ -77,7 +83,14 @@ public final class NettopStream {
     /// Called when the subprocess cannot be kept alive.
     public var onFailure: ((String) -> Void)?
 
-    public init(sampleInterval: Int = 1, executable: String = "/usr/bin/nettop") {
+    public init(sampleInterval: Int = 1, executable: String = "/usr/bin/nettop",
+                interfaceScope: InterfaceScope = .external,
+                proxyEndpoints: @escaping () -> Set<LocalProxyEndpoint> = SystemProxyEndpoints.current) {
+        self.interfaceScope = interfaceScope
+        self.parser = NettopParser(loopbackOnly: interfaceScope == .loopback)
+        self.childTracker = NettopChildTracker(recordURL: interfaceScope == .loopback
+            ? NettopChildTracker.loopbackRecordURL : NettopChildTracker.defaultRecordURL)
+        self.proxyEndpointsProvider = proxyEndpoints
         self.executable = executable
         self.sampleInterval = max(sampleInterval, 1)
     }
@@ -155,6 +168,14 @@ public final class NettopStream {
         }
     }
 
+    private func refreshProxyEndpoints(force: Bool = false) {
+        guard interfaceScope == .loopback else { return }
+        let now = Date()
+        guard force || now.timeIntervalSince(lastProxyRefresh) >= 2 else { return }
+        lastProxyRefresh = now
+        parser.proxyEndpoints = proxyEndpointsProvider()
+    }
+
     /// Launches nettop attached to a pseudo-terminal, with a stdin that blocks.
     ///
     /// **stdout must be a PTY.** nettop block-buffers stdout whenever it is not a
@@ -187,6 +208,7 @@ public final class NettopStream {
     /// to be explicit.
     private func spawn() {
         guard !stopping else { return }
+        refreshProxyEndpoints(force: true)
         // Retried like every other failure to launch, not given up on: a stream
         // that never comes back would stop the app list for the rest of the run.
         guard FileManager.default.isExecutableFile(atPath: executable) else {
@@ -226,7 +248,7 @@ public final class NettopStream {
 
         let task = Process()
         task.executableURL = URL(fileURLWithPath: executable)
-        task.arguments = Self.arguments(sampleInterval: sampleInterval)
+        task.arguments = Self.arguments(sampleInterval: sampleInterval, scope: interfaceScope)
         let slaveHandle = FileHandle(fileDescriptor: slave, closeOnDealloc: false)
         task.standardOutput = slaveHandle
         task.standardError = slaveHandle
@@ -273,13 +295,14 @@ public final class NettopStream {
         let count = read(masterFD, &buffer, buffer.count)
 
         if count > 0 {
+            refreshProxyEndpoints()
             // A pipe carries exactly what nettop wrote, but stripping CR stays as
             // cheap insurance against one ending up inside a parsed field.
             let bytes = buffer[0..<count].filter { $0 != 0x0D }
             guard let text = String(bytes: bytes, encoding: .utf8) else { return }
-            for sample in parser.consume(text) {
-                deliver(sample)
-            }
+            let samples = parser.consume(text)
+            publishProxyProcesses()
+            for sample in samples { deliver(sample) }
             // Whatever is still pending is a sample nettop has finished writing;
             // publish it as soon as the stream falls quiet rather than holding it
             // for the next header. See `quietWindow`.
@@ -291,6 +314,14 @@ public final class NettopStream {
         // spurious wakeups.
         if count < 0 && (errno == EAGAIN || errno == EINTR) { return }
         handleTermination()
+    }
+
+    private func publishProxyProcesses() {
+        guard interfaceScope == .loopback else { return }
+        let processes = parser.proxyTransportProcesses
+        guard processes != lastProxyProcesses else { return }
+        lastProxyProcesses = processes
+        onProxyProcesses?(processes)
     }
 
     private func deliver(_ sample: [NettopRow]) {
@@ -309,6 +340,7 @@ public final class NettopStream {
             guard let self, !self.stopping else { return }
             self.quietFlush = nil
             if let sample = self.parser.closeOnQuiet() { self.deliver(sample) }
+            self.publishProxyProcesses()
         }
         quietFlush = work
         queue.asyncAfter(deadline: .now() + Self.quietWindow, execute: work)

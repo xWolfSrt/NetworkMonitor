@@ -13,7 +13,7 @@ Verified 2026-10-26 (Asia/Shanghai).
 - History is local plaintext and defaults to indefinite retention.
 
 ## Authorized current work
-Fix startup process selection and spreadsheet formula injection in CSV export, add regression coverage, and replace the local installed app after verification. Preserve existing data and settings; do not enable Hotspot mode.
+Explicit local system-proxy attribution is implemented as specified in `proxy-attribution.md`: separate external/loopback sampling, original-app client accounting, separate proxy transport totals, additive local history storage and an activation-time note. Preserve all security fixes and existing history; do not enable Hotspot mode or publish remotely. Installation validation is recorded below when complete.
 
 ## Risks and next direction
 The optional Hotspot feature can pause security updates and leaves update suppression on ordinary exit. Keep it disabled for monitoring-only use. Continue privacy/security review before adding integrations or privileged behavior.

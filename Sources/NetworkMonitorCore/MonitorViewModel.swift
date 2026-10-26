@@ -45,6 +45,8 @@ public final class MonitorViewModel: ObservableObject {
     // Published state
     @Published public private(set) var rows: [UsageRow] = []
     @Published public private(set) var systemRows: [UsageRow] = []
+    @Published public private(set) var proxyTransportRows: [UsageRow] = []
+    public var proxyAttributionStartedAt: Date? { store.proxyAttributionStartedAt }
     @Published public private(set) var systemTotal: Int64 = 0
     @Published public private(set) var totalBytesIn: Int64 = 0
     @Published public private(set) var totalBytesOut: Int64 = 0
@@ -78,6 +80,11 @@ public final class MonitorViewModel: ObservableObject {
 
     private let identityResolver = AppIdentityResolver()
     private let nettop: NettopStream
+    private let proxyNettop: NettopStream?
+    private var proxyTransportApps: Set<String> = []
+    private var externalPIDs: Set<Int32> = []
+    private var loopbackPIDs: Set<Int32> = []
+    @Published public private(set) var proxyAttributionFailure: String?
     private let pathWatcher = NetworkIdentityWatcher()
 
     private var deltaTracker = InterfaceDeltaTracker()
@@ -135,7 +142,7 @@ public final class MonitorViewModel: ObservableObject {
                 speedTest: SpeedTestController = SpeedTestController(),
                 menuBarColors: MenuBarColors = MenuBarColors(),
                 wifiNames: WiFiNames = WiFiNames(),
-                nettop: NettopStream? = nil) {
+                nettop: NettopStream? = nil, proxyNettop: NettopStream? = nil) {
         self.store = store
         self.metering = metering ?? MeteringController(store: store)
         self.speedTest = speedTest
@@ -147,6 +154,8 @@ public final class MonitorViewModel: ObservableObject {
         self.profile = profile
         self.sampleInterval = profile.interfaceInterval(unattended: false)
         self.nettop = nettop ?? NettopStream(sampleInterval: profile.nettopSampleInterval)
+        self.proxyNettop = proxyNettop ?? (nettop == nil
+            ? NettopStream(sampleInterval: profile.nettopSampleInterval, interfaceScope: .loopback) : nil)
     }
 
     // MARK: Lifecycle
@@ -195,6 +204,16 @@ public final class MonitorViewModel: ObservableObject {
                 self.perAppFailure = message
             }
         }
+        proxyNettop?.onProxyProcesses = { [weak self] processes in
+            DispatchQueue.main.async { self?.recognizeProxyProcesses(processes) }
+        }
+        proxyNettop?.onSample = { [weak self] sample in
+            self?.handleNettopSample(sample, isLoopback: true)
+        }
+        proxyNettop?.onFailure = { [weak self] message in
+            DispatchQueue.main.async { self?.proxyAttributionFailure = message }
+        }
+        proxyNettop?.start()
         nettop.start()
         powerToken = PowerSource.observe { [weak self] in
             self?.applyProfile()
@@ -216,6 +235,7 @@ public final class MonitorViewModel: ObservableObject {
         if profile != next { profile = next }
         setSampleInterval(next.interfaceInterval(unattended: unattended))
         nettop.setSampleInterval(next.nettopSampleInterval)
+        proxyNettop?.setSampleInterval(next.nettopSampleInterval)
     }
 
     /// Applies a change to whether anyone can see the menu bar.
@@ -239,6 +259,8 @@ public final class MonitorViewModel: ObservableObject {
         sampleTimer = nil
         powerToken = nil
         nettop.stop()
+        proxyNettop?.onProxyProcesses = nil
+        proxyNettop?.stop()
         speedTest.stop()
         pathWatcher.stop()
         // Suppression is deliberately *not* lifted on quit. Quitting the app is
@@ -399,13 +421,35 @@ public final class MonitorViewModel: ObservableObject {
 
     // MARK: nettop sampling
 
-    private func handleNettopSample(_ sample: [NettopRow]) {
+    private func recognizeProxyProcesses(_ processes: [Int32: String]) {
+        proxyTransportApps = Set(processes.map { pid, name in
+            let identity = identityResolver.identity(pid: pid, fallbackName: name)
+            return identity.parent?.key ?? identity.key
+        })
+        if !proxyTransportApps.isEmpty {
+            store.noteProxyAttribution()
+            store.identifyProxyTransports(appKeys: proxyTransportApps)
+            if popoverIsOpen { rebuildRows(now: Date()) }
+        }
+    }
+
+    private func handleNettopSample(_ sample: [NettopRow], isLoopback: Bool = false) {
         // Resolve identities on the main actor: AppIdentityResolver touches
         // NSWorkspace and its caches are not thread-safe.
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if self.perAppFailure != nil { self.perAppFailure = nil }
+            if isLoopback { self.proxyAttributionFailure = nil }
+            else if self.perAppFailure != nil { self.perAppFailure = nil }
             let now = Date()
+            var transportApps = self.proxyTransportApps
+            for row in sample where row.isProxyTransport {
+                let identity = self.identityResolver.identity(pid: row.pid, fallbackName: row.processName)
+                transportApps.insert(identity.parent?.key ?? identity.key)
+            }
+            if sample.contains(where: { $0.isProxyTransport || $0.proxyBytesIn > 0 || $0.proxyBytesOut > 0 }) {
+                self.store.noteProxyAttribution(now: now)
+            }
+            var proxyTransportKeys: Set<String> = []
             var entries: [(identity: AppIdentity, bytesIn: Int64, bytesOut: Int64)] = []
             var pids = Set<Int32>()
             var merged: [String: (identity: AppIdentity, bytesIn: Int64, bytesOut: Int64)] = [:]
@@ -428,6 +472,9 @@ public final class MonitorViewModel: ObservableObject {
                 guard bytesIn > 0 || bytesOut > 0 else { continue }
                 let identity = self.identityResolver.identity(pid: row.pid,
                                                               fallbackName: row.processName)
+                if transportApps.contains(identity.parent?.key ?? identity.key) {
+                    proxyTransportKeys.insert(identity.key)
+                }
                 // Several helper pids collapse onto one identity; merge before
                 // recording so the store sees one entry per app.
                 if var existing = merged[identity.key] {
@@ -453,16 +500,17 @@ public final class MonitorViewModel: ObservableObject {
             self.metering.tick(now: now)
 
             if self.speedTest.phase.isRunning {
-                self.speedTest.recordBackground(entries.map {
+                self.speedTest.recordBackground(entries.filter { !proxyTransportKeys.contains($0.identity.key) }.map {
                     ($0.identity.displayName, $0.identity.key, $0.bytesIn + $0.bytesOut)
                 })
             }
 
-            self.lastSeenPIDs = pids
-            self.identityResolver.retainOnly(pids: pids)
+            if isLoopback { self.loopbackPIDs = pids } else { self.externalPIDs = pids }
+            self.lastSeenPIDs = self.externalPIDs.union(self.loopbackPIDs)
+            self.identityResolver.retainOnly(pids: self.lastSeenPIDs)
             self.store.recordApps(entries,
                                   localBytesIn: localIn, localBytesOut: localOut,
-                                  now: now)
+                                  proxyTransportKeys: proxyTransportKeys, now: now)
 
             if self.popoverIsOpen { self.rebuildRows(now: now) }
         }
@@ -494,6 +542,10 @@ public final class MonitorViewModel: ObservableObject {
         rows = partitioned.apps
         systemRows = partitioned.system
         systemTotal = partitioned.systemTotal
+        let transports = UsageRow.partition(apps: store.currentBucket.proxyTransports,
+                                           lastActivity: lastActivity, now: now,
+                                           activityWindow: profile.activityWindow)
+        proxyTransportRows = (transports.apps + transports.system).sorted(by: UsageRow.precedes)
     }
 
     // MARK: Network changes

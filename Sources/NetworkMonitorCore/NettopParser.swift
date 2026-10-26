@@ -12,24 +12,31 @@ public struct NettopRow: Equatable {
     public let bytesOut: Int64
     /// The part of the above that never left the LAN, summed from the process's
     /// connection rows. Kept out of every displayed figure. See `RemoteEndpoint`.
-    public let localBytesIn: Int64
-    public let localBytesOut: Int64
+    public fileprivate(set) var localBytesIn: Int64
+    public fileprivate(set) var localBytesOut: Int64
     /// The subset of the local bytes trustworthy enough to subtract from the
     /// kernel's interface total: unicast LAN peers only, never multicast.
-    public let subtractableLocalIn: Int64
-    public let subtractableLocalOut: Int64
+    public fileprivate(set) var subtractableLocalIn: Int64
+    public fileprivate(set) var subtractableLocalOut: Int64
 
-    /// What the app reports: bytes that actually crossed the internet.
+    public fileprivate(set) var proxyBytesIn: Int64
+    public fileprivate(set) var proxyBytesOut: Int64
+    public fileprivate(set) var isProxyTransport: Bool
+    public fileprivate(set) var isLoopbackSample: Bool
+
+    /// Direct internet usage plus traffic delivered through the local system proxy.
     ///
     /// Clamped at zero because the two figures come from different rows of the
     /// same sample, and a process whose connections churn mid-sample can report
     /// slightly more local bytes than its parent row totals.
-    public var internetBytesIn: Int64 { max(bytesIn - localBytesIn, 0) }
-    public var internetBytesOut: Int64 { max(bytesOut - localBytesOut, 0) }
+    public var internetBytesIn: Int64 { (isLoopbackSample ? 0 : max(bytesIn - localBytesIn, 0)) + proxyBytesIn }
+    public var internetBytesOut: Int64 { (isLoopbackSample ? 0 : max(bytesOut - localBytesOut, 0)) + proxyBytesOut }
 
     public init(pid: Int32, processName: String, bytesIn: Int64, bytesOut: Int64,
                 localBytesIn: Int64 = 0, localBytesOut: Int64 = 0,
-                subtractableLocalIn: Int64 = 0, subtractableLocalOut: Int64 = 0) {
+                subtractableLocalIn: Int64 = 0, subtractableLocalOut: Int64 = 0,
+                proxyBytesIn: Int64 = 0, proxyBytesOut: Int64 = 0,
+                isProxyTransport: Bool = false, isLoopbackSample: Bool = false) {
         self.pid = pid
         self.processName = processName
         self.bytesIn = bytesIn
@@ -38,11 +45,15 @@ public struct NettopRow: Equatable {
         self.localBytesOut = localBytesOut
         self.subtractableLocalIn = subtractableLocalIn
         self.subtractableLocalOut = subtractableLocalOut
+        self.proxyBytesIn = proxyBytesIn
+        self.proxyBytesOut = proxyBytesOut
+        self.isProxyTransport = isProxyTransport
+        self.isLoopbackSample = isLoopbackSample
     }
 }
 
 /// Parses the CSV stream produced by
-/// `nettop -n -x -d -L 0 -s <N> -t external -J time,bytes_in,bytes_out`
+/// `nettop -n -x -d -L 0 -s <N> -J time,bytes_in,bytes_out`
 /// (see `NettopStream`).
 ///
 /// Two findings drove this design, both verified against `nettop` on macOS 26:
@@ -64,7 +75,17 @@ public struct NettopParser {
     private var pending: [NettopRow] = []
     private var buffer = ""
 
-    public init() {}
+    public var proxyEndpoints: Set<LocalProxyEndpoint> {
+        didSet { if proxyEndpoints != oldValue { proxyProcesses.removeAll() } }
+    }
+    private var proxyProcesses: [Int32: String] = [:]
+    public var proxyTransportProcesses: [Int32: String] { proxyProcesses }
+    private let loopbackOnly: Bool
+
+    public init(proxyEndpoints: Set<LocalProxyEndpoint> = [], loopbackOnly: Bool = false) {
+        self.loopbackOnly = loopbackOnly
+        self.proxyEndpoints = proxyEndpoints
+    }
 
     /// Feeds raw stdout text and returns any samples completed by it.
     ///
@@ -92,7 +113,10 @@ public struct NettopParser {
                 foldConnection(connection)
                 continue
             }
-            if let row = Self.parseRow(line) { pending.append(row) }
+            if var row = Self.parseRow(line) {
+                row.isLoopbackSample = loopbackOnly
+                pending.append(row)
+            }
         }
         return samples
     }
@@ -100,23 +124,29 @@ public struct NettopParser {
     /// Adds a connection's bytes to its parent process, if they stayed local.
     private mutating func foldConnection(_ connection: Connection) {
         guard let index = pending.indices.last else { return }
-        guard connection.scope.isLocal else { return }
-        let parent = pending[index]
-        let subtractable = connection.scope.isSubtractable
-        pending[index] = NettopRow(
-            pid: parent.pid,
-            processName: parent.processName,
-            bytesIn: parent.bytesIn,
-            bytesOut: parent.bytesOut,
-            localBytesIn: parent.localBytesIn + connection.bytesIn,
-            localBytesOut: parent.localBytesOut + connection.bytesOut,
-            subtractableLocalIn: parent.subtractableLocalIn
-                + (subtractable ? connection.bytesIn : 0),
-            subtractableLocalOut: parent.subtractableLocalOut
-                + (subtractable ? connection.bytesOut : 0))
+        let proxy = LocalProxyConnection(label: connection.label, endpoints: proxyEndpoints)
+        guard connection.scope.isLocal || proxy.isLoopback else { return }
+        var parent = pending[index]
+        parent.localBytesIn += connection.bytesIn
+        parent.localBytesOut += connection.bytesOut
+        // Loopback is absent from physical interface counters. Subtracting it
+        // would erase real internet usage, often once for each end of the socket.
+        if connection.scope.isSubtractable && !proxy.isLoopback {
+            parent.subtractableLocalIn += connection.bytesIn
+            parent.subtractableLocalOut += connection.bytesOut
+        }
+        if proxy.role == .client {
+            parent.proxyBytesIn += connection.bytesIn
+            parent.proxyBytesOut += connection.bytesOut
+        } else if proxy.role == .transport {
+            proxyProcesses[parent.pid] = parent.processName
+            parent.isProxyTransport = true
+        }
+        pending[index] = parent
     }
 
     struct Connection {
+        let label: String
         let scope: TrafficScope
         let bytesIn: Int64
         let bytesOut: Int64
@@ -137,7 +167,7 @@ public struct NettopParser {
         let bytesIn = Int64(fields.removeLast().trimmingCharacters(in: .whitespaces)) ?? 0
         let label = fields.dropFirst().joined(separator: ",")
             .trimmingCharacters(in: .whitespaces)
-        return Connection(scope: RemoteEndpoint.scope(connectionLabel: label),
+        return Connection(label: label, scope: RemoteEndpoint.scope(connectionLabel: label),
                           bytesIn: bytesIn, bytesOut: bytesOut)
     }
 
@@ -173,7 +203,14 @@ public struct NettopParser {
             sawFirstSample = true   // priming sample: cumulative, not a delta
             return nil
         }
-        return pending
+        let live = Dictionary(pending.map { ($0.pid, $0.processName) },
+                              uniquingKeysWith: { _, last in last })
+        proxyProcesses = proxyProcesses.filter { live[$0.key] == $0.value }
+        return pending.map { row in
+            var row = row
+            if proxyProcesses[row.pid] == row.processName { row.isProxyTransport = true }
+            return row
+        }
     }
 
     /// Call when the `nettop` process restarts — the next sample is cumulative again.

@@ -111,6 +111,22 @@ func runNettopParserTests() {
             Check.expectEqual(row.internetBytesOut, 100)
         }
 
+        Check.test("loopback traffic is never subtracted from physical interface totals") {
+            var parser = NettopParser()
+            let fixture = """
+            time,,bytes_in,bytes_out,
+            00:00:00,App.321,1,1,
+            time,,bytes_in,bytes_out,
+            00:00:01,App.321,500,60,
+            00:00:01,tcp4 127.0.0.1:50000<->127.0.0.1:8000,500,60,
+            time,,bytes_in,bytes_out,
+            """
+            let row = parser.consume(fixture + "\n").first?.first
+            Check.expectEqual(row?.internetBytesIn, 0)
+            Check.expectEqual(row?.subtractableLocalIn, 0)
+            Check.expectEqual(row?.subtractableLocalOut, 0)
+        }
+
         // Sockets churn mid-sample, so children can momentarily exceed the parent.
         // That must clamp, never report a negative usage figure.
         Check.test("local bytes exceeding the parent clamp to zero") {

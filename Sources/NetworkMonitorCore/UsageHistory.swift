@@ -129,6 +129,7 @@ public struct HistoryReport {
     public let apps: [UsageRow]
     public let systemRows: [UsageRow]
     public let systemTotal: Int64
+    public let proxyTransports: [UsageRow]
     /// Biggest first.
     public let networks: [NetworkTotal]
     /// Newest first.
@@ -144,7 +145,7 @@ public struct HistoryReport {
         HistoryReport(period: period, filter: filter,
                       bins: period.bins(calendar: calendar).map { Bin(interval: $0, byKind: [:]) },
                       byKind: [:], bytesIn: 0, bytesOut: 0, meteredBytes: 0,
-                      apps: [], systemRows: [], systemTotal: 0,
+                      apps: [], systemRows: [], systemTotal: 0, proxyTransports: [],
                       networks: [], sessions: [], recordingSince: nil)
     }
 }
@@ -250,7 +251,7 @@ public final class UsageHistory {
     /// kept out of every figure.
     public func recordApps(_ entries: [(identity: AppIdentity, bytesIn: Int64, bytesOut: Int64)],
                            localBytesIn: Int64 = 0, localBytesOut: Int64 = 0,
-                           now: Date = Date()) {
+                           proxyTransportKeys: Set<String> = [], now: Date = Date()) {
         let moving = entries.filter { $0.bytesIn > 0 || $0.bytesOut > 0 }
         guard !moving.isEmpty || localBytesIn > 0 || localBytesOut > 0,
               let slot = slot(at: now)
@@ -260,17 +261,24 @@ public final class UsageHistory {
         traffic.localIn += localBytesIn
         traffic.localOut += localBytesOut
         var apps = pending.apps[slot, default: [:]]
+        var transports = pending.proxyTransports[slot, default: [:]]
         for entry in moving {
-            traffic.appIn += entry.bytesIn
-            traffic.appOut += entry.bytesOut
-            apps[entry.identity.key, default: (0, 0)].bytesIn += entry.bytesIn
-            apps[entry.identity.key, default: (0, 0)].bytesOut += entry.bytesOut
+            if proxyTransportKeys.contains(entry.identity.key) {
+                transports[entry.identity.key, default: (0, 0)].bytesIn += entry.bytesIn
+                transports[entry.identity.key, default: (0, 0)].bytesOut += entry.bytesOut
+            } else {
+                traffic.appIn += entry.bytesIn
+                traffic.appOut += entry.bytesOut
+                apps[entry.identity.key, default: (0, 0)].bytesIn += entry.bytesIn
+                apps[entry.identity.key, default: (0, 0)].bytesOut += entry.bytesOut
+            }
             // Latest naming wins, as in the store: a bundle can resolve after
             // the first sighting.
             pending.identities[entry.identity.key] = entry.identity
         }
         pending.traffic[slot] = traffic
         pending.apps[slot] = apps
+        pending.proxyTransports[slot] = transports
     }
 
     /// The store has pointed accumulation at `fingerprint`.
@@ -435,17 +443,21 @@ public final class UsageHistory {
                                      .int(sums.appIn), .int(sums.appOut)])
                 }
 
-                let appTraffic = try database.prepare("""
-                    INSERT INTO app_traffic (hour, session_id, app_key, bytes_in, bytes_out)
-                    VALUES (?1, ?2, ?3, ?4, ?5)
-                    ON CONFLICT(hour, session_id, app_key) DO UPDATE SET
-                        bytes_in = bytes_in + excluded.bytes_in,
-                        bytes_out = bytes_out + excluded.bytes_out
-                    """)
-                for (slot, apps) in batch.apps {
-                    for (key, sums) in apps {
-                        try appTraffic.run([.int(slot.hour), .int(slot.session), .text(key),
-                                            .int(sums.bytesIn), .int(sums.bytesOut)])
+                // Table names are fixed internal constants, never external input.
+                for (table, samples) in [("app_traffic", batch.apps),
+                                         ("proxy_transport_traffic", batch.proxyTransports)] {
+                    let appTraffic = try database.prepare("""
+                        INSERT INTO \(table) (hour, session_id, app_key, bytes_in, bytes_out)
+                        VALUES (?1, ?2, ?3, ?4, ?5)
+                        ON CONFLICT(hour, session_id, app_key) DO UPDATE SET
+                            bytes_in = bytes_in + excluded.bytes_in,
+                            bytes_out = bytes_out + excluded.bytes_out
+                        """)
+                    for (slot, apps) in samples {
+                        for (key, sums) in apps {
+                            try appTraffic.run([.int(slot.hour), .int(slot.session), .text(key),
+                                                .int(sums.bytesIn), .int(sums.bytesOut)])
+                        }
                     }
                 }
             }
@@ -470,10 +482,12 @@ public final class UsageHistory {
                     let hour = Int64(cutoff.timeIntervalSince1970)
                     try database.prepare("DELETE FROM traffic WHERE hour < ?1").run([.int(hour)])
                     try database.prepare("DELETE FROM app_traffic WHERE hour < ?1").run([.int(hour)])
+                    try database.prepare("DELETE FROM proxy_transport_traffic WHERE hour < ?1").run([.int(hour)])
                     try database.prepare("DELETE FROM sessions WHERE ended_at < ?1 AND id != ?2")
                         .run([.real(cutoff.timeIntervalSince1970), .int(keep)])
                     try database.execute("""
-                        DELETE FROM apps WHERE key NOT IN (SELECT DISTINCT app_key FROM app_traffic)
+                        DELETE FROM apps WHERE key NOT IN
+                        (SELECT app_key FROM app_traffic UNION SELECT app_key FROM proxy_transport_traffic)
                         """)
                 }
                 try database.execute("PRAGMA incremental_vacuum")
@@ -498,7 +512,7 @@ public final class UsageHistory {
         queue.sync {
             do {
                 try database.transaction {
-                    for table in ["app_traffic", "traffic", "sessions", "apps"] {
+                    for table in ["app_traffic", "proxy_transport_traffic", "traffic", "sessions", "apps"] {
                         try database.execute("DELETE FROM \(table)")
                     }
                 }
@@ -642,42 +656,49 @@ public final class UsageHistory {
 
             // Per-app totals, nested and grouped exactly as the popover does,
             // and split by the kind of network, which colours each app's bar.
-            let (appWhere, appValues) = conditions(filter, hourColumn: "a.hour", appTable: "a")
-            let appQuery = try database.prepare("""
-                SELECT a.app_key, p.name, p.bundle_path, p.is_system,
-                       p.parent_key, p.parent_name, p.parent_bundle_path,
-                       SUM(a.bytes_in), SUM(a.bytes_out), s.kind
-                FROM app_traffic a
-                JOIN apps p ON p.key = a.app_key
-                JOIN sessions s ON s.id = a.session_id
-                WHERE \(appWhere)
-                GROUP BY a.app_key, s.kind
-                """)
-            appQuery.bind(range + appValues)
-            var apps: [String: AppTotals] = [:]
-            var appKinds: [String: [NetworkFingerprint.Kind: Int64]] = [:]
-            while try appQuery.step() {
-                let key = appQuery.string(0) ?? ""
-                let parent: ParentApp? = appQuery.string(4).map {
-                    ParentApp(key: $0, displayName: appQuery.string(5) ?? "",
-                              bundlePath: appQuery.string(6) ?? "")
+            func appRows(in table: String) throws
+                -> (apps: [UsageRow], system: [UsageRow], systemTotal: Int64) {
+                let (appWhere, appValues) = conditions(filter, hourColumn: "a.hour", appTable: "a")
+                let appQuery = try database.prepare("""
+                    SELECT a.app_key, p.name, p.bundle_path, p.is_system,
+                           p.parent_key, p.parent_name, p.parent_bundle_path,
+                           SUM(a.bytes_in), SUM(a.bytes_out), s.kind
+                    FROM \(table) a
+                    JOIN apps p ON p.key = a.app_key
+                    JOIN sessions s ON s.id = a.session_id
+                    WHERE \(appWhere)
+                    GROUP BY a.app_key, s.kind
+                    """)
+                appQuery.bind(range + appValues)
+                var apps: [String: AppTotals] = [:]
+                var appKinds: [String: [NetworkFingerprint.Kind: Int64]] = [:]
+                while try appQuery.step() {
+                    let key = appQuery.string(0) ?? ""
+                    let parent: ParentApp? = appQuery.string(4).map {
+                        ParentApp(key: $0, displayName: appQuery.string(5) ?? "",
+                                  bundlePath: appQuery.string(6) ?? "")
+                    }
+                    let inBytes = appQuery.int64(7), outBytes = appQuery.int64(8)
+                    var totals = apps[key] ?? AppTotals(displayName: appQuery.string(1) ?? key,
+                                                        bundlePath: appQuery.string(2),
+                                                        isSystem: appQuery.int64(3) != 0,
+                                                        parent: parent)
+                    totals.bytesIn += inBytes
+                    totals.bytesOut += outBytes
+                    apps[key] = totals
+                    let kind = (NetworkFingerprint.Kind(rawValue: appQuery.string(9) ?? "") ?? .other).charted
+                    appKinds[key, default: [:]][kind, default: 0] += inBytes + outBytes
                 }
-                let inBytes = appQuery.int64(7), outBytes = appQuery.int64(8)
-                var totals = apps[key] ?? AppTotals(displayName: appQuery.string(1) ?? key,
-                                                    bundlePath: appQuery.string(2),
-                                                    isSystem: appQuery.int64(3) != 0,
-                                                    parent: parent)
-                totals.bytesIn += inBytes
-                totals.bytesOut += outBytes
-                apps[key] = totals
-                let kind = (NetworkFingerprint.Kind(rawValue: appQuery.string(9) ?? "") ?? .other).charted
-                appKinds[key, default: [:]][kind, default: 0] += inBytes + outBytes
+                return UsageRow.partition(apps: apps, lastActivity: [:], now: period.start,
+                                          kinds: appKinds)
+
             }
-            let partitioned = UsageRow.partition(apps: apps, lastActivity: [:], now: period.start,
-                                                 kinds: appKinds)
+            let partitioned = try appRows(in: "app_traffic")
+            let transport = try appRows(in: "proxy_transport_traffic")
 
             // Networks: the period's visits grouped by where they were, named
             // after the most recent one.
+
             var networks: [String: HistoryReport.NetworkTotal] = [:]
             let sessionTotals = bySession.compactMap { id, bytes -> HistoryReport.SessionTotal? in
                 sessions[id].map { HistoryReport.SessionTotal(session: $0, bytes: bytes) }
@@ -701,6 +722,7 @@ public final class UsageHistory {
                 byKind: byKind, bytesIn: bytesIn, bytesOut: bytesOut, meteredBytes: metered,
                 apps: partitioned.apps, systemRows: partitioned.system,
                 systemTotal: partitioned.systemTotal,
+                proxyTransports: (transport.apps + transport.system).sorted(by: UsageRow.precedes),
                 networks: networks.values.sorted {
                     $0.bytes != $1.bytes ? $0.bytes > $1.bytes : $0.defaultLabel < $1.defaultLabel
                 },
@@ -903,7 +925,15 @@ public final class UsageHistory {
                 bytes_out INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (hour, session_id, app_key)
             ) WITHOUT ROWID;
-            PRAGMA user_version = 1;
+            CREATE TABLE IF NOT EXISTS proxy_transport_traffic (
+                hour INTEGER NOT NULL,
+                session_id INTEGER NOT NULL,
+                app_key TEXT NOT NULL,
+                bytes_in INTEGER NOT NULL DEFAULT 0,
+                bytes_out INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (hour, session_id, app_key)
+            ) WITHOUT ROWID;
+            PRAGMA user_version = 2;
             """)
         return database
     }
@@ -978,11 +1008,12 @@ public final class UsageHistory {
     private struct Pending {
         var traffic: [Slot: Traffic] = [:]
         var apps: [Slot: [String: (bytesIn: Int64, bytesOut: Int64)]] = [:]
+        var proxyTransports: [Slot: [String: (bytesIn: Int64, bytesOut: Int64)]] = [:]
         var identities: [String: AppIdentity] = [:]
         var sessions: [Int64: SessionRow] = [:]
 
         var isEmpty: Bool {
-            traffic.isEmpty && apps.isEmpty && identities.isEmpty && sessions.isEmpty
+            traffic.isEmpty && apps.isEmpty && proxyTransports.isEmpty && identities.isEmpty && sessions.isEmpty
         }
     }
 }

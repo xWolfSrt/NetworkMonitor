@@ -45,6 +45,16 @@ public final class NettopChildTracker {
             .first?.appendingPathComponent("NetworkMonitor/nettop-child.json")
     }
 
+    public static var loopbackRecordURL: URL? {
+        defaultRecordURL?.deletingLastPathComponent().appendingPathComponent("nettop-loopback-child.json")
+    }
+
+    public static func reapAllRecordedOrphans() {
+        for url in [defaultRecordURL, loopbackRecordURL].compactMap({ $0 }) {
+            NettopChildTracker(recordURL: url).reapRecordedOrphan()
+        }
+    }
+
     public init(recordURL: URL? = NettopChildTracker.defaultRecordURL,
                 currentUID: UInt32 = getuid(),
                 lookup: @escaping (Int32) -> NettopChildSnapshot? = NettopChildSnapshot.read,

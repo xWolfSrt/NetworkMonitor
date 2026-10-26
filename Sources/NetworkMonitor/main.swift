@@ -21,7 +21,7 @@ if CommandLine.arguments.contains("--unregister-login-item") {
 // Uninstall recovery uses the same recorded kernel identity as normal startup.
 // It must never scan command lines or signal another application's nettop.
 if CommandLine.arguments.contains("--reap-nettop-orphan") {
-    NettopChildTracker().reapRecordedOrphan()
+    NettopChildTracker.reapAllRecordedOrphans()
     exit(0)
 }
 
