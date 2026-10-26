@@ -470,6 +470,26 @@ func runUsageHistoryTests() {
             Check.expectEqual(lines[3], "2026-10-21 09:00,Home,Wi-Fi,No,Not attributed to an app,300,30")
         }
 
+        Check.test("CSV treats formula-prefixed labels as spreadsheet text") {
+            for value in ["=1+1", "+1+1", "-1+1", "@SUM(1+1)", "\t=1+1", "  =1+1", "\n=1+1"] {
+                Check.expectTrue(UsageHistory.csvField(value).contains("'" + value),
+                                 "formula-like text was not neutralized: \(value.debugDescription)")
+            }
+            Check.expectEqual(UsageHistory.csvField(""), "")
+            Check.expectEqual(UsageHistory.csvField("Safari"), "Safari")
+        }
+
+        Check.test("CSV export protects network labels and application names") {
+            let url = temporaryURL(); defer { remove(url) }
+            let cal = calendar()
+            let history = UsageHistory(databaseURL: url, calendar: cal)
+            history.join(network("A"), label: "Net A", switched: false, now: reference)
+            history.recordInterface(bytesIn: 100, bytesOut: 10, now: reference)
+            history.recordApps([(app("=1+1"), 100, 10)], now: reference)
+            let csv = history.exportCSV(for: day(reference, cal), networkName: { _ in "+2+2" })
+            Check.expectTrue(csv.contains(",'+2+2,Wi-Fi,No,'=1+1,100,10"), csv)
+        }
+
         Check.test("CSV quotes only what needs quoting") {
             Check.expectEqual(UsageHistory.csvField("Safari"), "Safari")
             Check.expectEqual(UsageHistory.csvField("a,b"), "\"a,b\"")

@@ -819,11 +819,16 @@ public final class UsageHistory {
         return lines.joined(separator: "\n") + "\n"
     }
 
-    /// Quoted only when it has to be, with quotes doubled, per RFC 4180.
+    /// Spreadsheet text is escaped before RFC 4180 quoting: CSV quotes alone do
+    /// not stop formulas in application names or network labels from executing.
     public static func csvField(_ value: String) -> String {
-        guard value.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" })
-        else { return value }
-        return "\"" + value.replacingOccurrences(of: "\"", with: "\"\"") + "\""
+        let significant = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        let formulaPrefix = significant.first.map { "=+-@".contains($0) } ?? false
+        let controlPrefix = value.first.map { $0 == "\t" || $0 == "\r" || $0 == "\n" } ?? false
+        let text = formulaPrefix || controlPrefix ? "'" + value : value
+        guard text.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" })
+        else { return text }
+        return "\"" + text.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
     // MARK: Opening
