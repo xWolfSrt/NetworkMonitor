@@ -59,3 +59,10 @@ The optional Hotspot feature can pause security updates and leaves update suppre
 - Hotspot stayed off, privileged components stayed absent, and the monitoring app had no internet socket in the read-only check. No Headroom/Nano configuration, service lifecycle, login registration or remote repository setting was changed.
 - Rollback App, stopped data, preferences and `runtime-verification.json`: `backups/before-headroom-20261027-134214` (mode 0700, Git-ignored). Earlier rollback sets remain intact. Branch `codex/headroom-accounting` is local only; nothing was pushed.
 - Native pixel checks and the runtime data path passed; a separate manual desktop screenshot acceptance was not performed. Earlier mixed records remain explicitly ambiguous, rather than being retrospectively assigned to Headroom.
+
+## Development branch decision (2026-10-27)
+
+- The user authorised creating fork branch `develop`, integrating `codex/headroom-accounting`, and using `develop` for future development. All nine maintenance commits through `825d981162dd1280f6e0cdde9d26481d41da646e` are included by fast-forward, preserving their history.
+- Local checkout is `develop` tracking `origin/develop`. This branch is the default working branch for subsequent fork development; necessary isolated branches start from it. `AGENTS.md` and work rules record this preference.
+- Earlier “local only / nothing pushed” statements above describe the installation checkpoints before remote delivery. The maintenance branch is now published and integrated into the fork's development branch.
+- This integration changes branch/documentation state only; application sources and installed build 81 remain unchanged. The same code passed 487 tests / 1573 assertions before publication. No release, tag, issue-setting change or change to `main` was made. The repository's GitHub default branch remains `main`; the requested working branch is `develop`.

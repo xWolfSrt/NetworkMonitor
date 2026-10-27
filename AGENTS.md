@@ -9,9 +9,9 @@ Read this file, `docs/agent-context/README.md`, then the task-specific upstream 
 
 ## Rules
 - Preserve user settings, history, credentials and unrelated work.
-- Keep changes on `codex/` branches; do not push directly to `main`.
+- Use `develop`, tracking `origin/develop`, for ongoing fork development (user decision, 2026-10-27). When isolation is needed, start a `codex/` branch from `develop`. Do not push directly to `main`.
 - Local development builds are allowed for an authorized local maintenance task.
-- Upstream contribution uses issue → PR → release. This fork currently has Issues disabled; resolve that remote workflow before publishing, without enabling repository features or making releases as a side effect of a local fix.
+- Explicitly authorised fork pushes and integration on `develop` follow the user's scope. Upstream contributions and formal releases still use issue → PR → release. Issues remain disabled on this fork; do not enable repository features or publish releases as a side effect of development.
 - Run `make test` and `make app`; use the existing SwiftPM wrapper and signing behavior.
 - Never run a real speed test as part of verification.
 - Never enable Hotspot mode or install the privileged helper during ordinary development.
