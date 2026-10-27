@@ -219,7 +219,7 @@ public struct HistoryView: View {
 
     private var isListEmpty: Bool {
         switch model.tab {
-        case .apps:     return report.apps.isEmpty && report.systemRows.isEmpty && report.proxyTransports.isEmpty
+        case .apps:     return report.apps.isEmpty && report.systemRows.isEmpty && report.proxyTransports.isEmpty && report.legacyApps.isEmpty
         case .networks: return report.networks.isEmpty
         case .sessions: return report.sessions.isEmpty
         }
@@ -290,6 +290,17 @@ public struct HistoryView: View {
             .frame(height: 38)
             .help("Forwarding-process totals are separate from app usage and are omitted from the per-app CSV sum.")
         }
+        ForEach(report.legacyApps) { row in
+            HStack(spacing: 8) {
+                Image(systemName: "clock.arrow.circlepath")
+                Text(row.displayName + " · Earlier mixed usage").lineLimit(1)
+                Spacer()
+                Text(ByteFormat.bytes(row.total)).monospacedDigit()
+            }
+            .font(.system(size: 12)).foregroundStyle(.secondary).frame(height: 38)
+            .help("Original mixed interpreter records are preserved separately; they are not added to app usage or the CSV sum.")
+        }
+
     }
 
     private var systemSummary: UsageRow {

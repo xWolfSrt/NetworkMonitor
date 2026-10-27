@@ -72,6 +72,7 @@ public struct AppIdentity: Hashable {
 /// consulted first.
 public final class AppIdentityResolver {
 
+    private let runtimeTools = RuntimeToolLookup()
     private var pathByPID: [Int32: String] = [:]
     /// Per-pid results. Required, not just an optimisation: an adopted identity
     /// depends on the parent, and the same `node` binary can be launched by two
@@ -91,7 +92,16 @@ public final class AppIdentityResolver {
 
     public init() {}
 
+    func isRuntimeProxy(pid: Int32, fallbackName: String) -> Bool {
+        !(runtimeTools.tool(pid: pid, processName: fallbackName)?.proxyEndpoints.isEmpty ?? true)
+    }
+
     public func identity(pid: Int32, fallbackName: String) -> AppIdentity {
+        if let tool = runtimeTools.tool(pid: pid, processName: fallbackName) {
+            identityByPID[pid] = tool.identity
+            return tool.identity
+        }
+        if identityByPID[pid]?.key == RuntimeTool.headroomKey { identityByPID.removeValue(forKey: pid) }
         if let cached = identityByPID[pid] { return cached }
 
         guard let path = Self.executablePath(pid: pid) else {
@@ -113,7 +123,7 @@ public final class AppIdentityResolver {
         // Only an un-bundled process can be adopted; a bundled one already knows
         // which app it belongs to.
         if identity.bundlePath == nil,
-           let parent = Self.adoptiveParent(ancestorPaths: ancestorPaths(of: pid)) {
+           let parent = owningParent(of: pid) {
             identity = Self.adopted(identity, by: parent)
         }
 
@@ -145,22 +155,21 @@ public final class AppIdentityResolver {
 
     // MARK: - Ancestry
 
-    /// Executable paths of `pid`'s ancestors, nearest first.
-    ///
-    /// Stops at launchd (pid 1), which owns every daemon and would otherwise be
-    /// walked into on each one. Entries that cannot be resolved are skipped
-    /// rather than ending the walk: an intermediate process may have exited, and
-    /// the app above it is still the right answer.
-    private func ancestorPaths(of pid: Int32) -> [String] {
-        var paths: [String] = []
+    private func owningParent(of pid: Int32) -> ParentApp? {
         var current = pid
         for _ in 0..<Self.maxAncestorDepth {
-            guard let parent = Self.parentPID(of: current), parent > 1, parent != current
-            else { break }
+            guard let parent = Self.parentPID(of: current), parent > 1, parent != current else { break }
             current = parent
-            if let path = Self.executablePath(pid: current) { paths.append(path) }
+            guard let path = Self.executablePath(pid: current) else { continue }
+            if let tool = runtimeTools.tool(pid: current, processName: (path as NSString).lastPathComponent) {
+                return ParentApp(key: tool.identity.key, displayName: tool.identity.displayName, bundlePath: "")
+            }
+            let owner = Self.identity(forExecutablePath: path, fallbackName: "")
+            if let bundle = owner.bundlePath {
+                return ParentApp(key: owner.key, displayName: owner.displayName, bundlePath: bundle)
+            }
         }
-        return paths
+        return nil
     }
 
     /// The nearest ancestor that lives in an `.app` bundle.
@@ -225,7 +234,10 @@ public final class AppIdentityResolver {
     public func icon(for identity: AppIdentity) -> NSImage {
         if let cached = iconByKey[identity.key] { return cached }
         let image: NSImage
-        if let bundlePath = identity.bundlePath {
+        if identity.key == RuntimeTool.headroomKey {
+            image = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: "Headroom")
+                ?? NSWorkspace.shared.icon(for: .unixExecutable)
+        } else if let bundlePath = identity.bundlePath {
             image = NSWorkspace.shared.icon(forFile: bundlePath)
         } else if identity.isSystem {
             image = Self.systemDaemonIcon()

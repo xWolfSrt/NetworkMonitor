@@ -130,6 +130,7 @@ public struct HistoryReport {
     public let systemRows: [UsageRow]
     public let systemTotal: Int64
     public let proxyTransports: [UsageRow]
+    public let legacyApps: [UsageRow]
     /// Biggest first.
     public let networks: [NetworkTotal]
     /// Newest first.
@@ -145,7 +146,7 @@ public struct HistoryReport {
         HistoryReport(period: period, filter: filter,
                       bins: period.bins(calendar: calendar).map { Bin(interval: $0, byKind: [:]) },
                       byKind: [:], bytesIn: 0, bytesOut: 0, meteredBytes: 0,
-                      apps: [], systemRows: [], systemTotal: 0, proxyTransports: [],
+                      apps: [], systemRows: [], systemTotal: 0, proxyTransports: [], legacyApps: [],
                       networks: [], sessions: [], recordingSince: nil)
     }
 }
@@ -483,11 +484,12 @@ public final class UsageHistory {
                     try database.prepare("DELETE FROM traffic WHERE hour < ?1").run([.int(hour)])
                     try database.prepare("DELETE FROM app_traffic WHERE hour < ?1").run([.int(hour)])
                     try database.prepare("DELETE FROM proxy_transport_traffic WHERE hour < ?1").run([.int(hour)])
+                    try database.prepare("DELETE FROM legacy_app_traffic WHERE hour < ?1").run([.int(hour)])
                     try database.prepare("DELETE FROM sessions WHERE ended_at < ?1 AND id != ?2")
                         .run([.real(cutoff.timeIntervalSince1970), .int(keep)])
                     try database.execute("""
                         DELETE FROM apps WHERE key NOT IN
-                        (SELECT app_key FROM app_traffic UNION SELECT app_key FROM proxy_transport_traffic)
+                        (SELECT app_key FROM app_traffic UNION SELECT app_key FROM proxy_transport_traffic UNION SELECT app_key FROM legacy_app_traffic)
                         """)
                 }
                 try database.execute("PRAGMA incremental_vacuum")
@@ -512,7 +514,7 @@ public final class UsageHistory {
         queue.sync {
             do {
                 try database.transaction {
-                    for table in ["app_traffic", "proxy_transport_traffic", "traffic", "sessions", "apps"] {
+                    for table in ["app_traffic", "proxy_transport_traffic", "legacy_app_traffic", "traffic", "sessions", "apps"] {
                         try database.execute("DELETE FROM \(table)")
                     }
                 }
@@ -695,6 +697,7 @@ public final class UsageHistory {
             }
             let partitioned = try appRows(in: "app_traffic")
             let transport = try appRows(in: "proxy_transport_traffic")
+            let legacy = try appRows(in: "legacy_app_traffic")
 
             // Networks: the period's visits grouped by where they were, named
             // after the most recent one.
@@ -723,6 +726,7 @@ public final class UsageHistory {
                 apps: partitioned.apps, systemRows: partitioned.system,
                 systemTotal: partitioned.systemTotal,
                 proxyTransports: (transport.apps + transport.system).sorted(by: UsageRow.precedes),
+                legacyApps: (legacy.apps + legacy.system).sorted(by: UsageRow.precedes),
                 networks: networks.values.sorted {
                     $0.bytes != $1.bytes ? $0.bytes > $1.bytes : $0.defaultLabel < $1.defaultLabel
                 },
@@ -880,6 +884,7 @@ public final class UsageHistory {
 
     private static func openAndMigrate(_ url: URL) throws -> SQLiteDatabase {
         let database = try SQLiteDatabase(url: url)
+        let previousVersion = try database.scalar("PRAGMA user_version") ?? 0
         // Must precede the first table, or it has no effect on this file.
         try database.execute("PRAGMA auto_vacuum = INCREMENTAL")
         // WAL with NORMAL sync: a write every 15 s costs an append, not an
@@ -933,8 +938,39 @@ public final class UsageHistory {
                 bytes_out INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (hour, session_id, app_key)
             ) WITHOUT ROWID;
-            PRAGMA user_version = 2;
+            CREATE TABLE IF NOT EXISTS legacy_app_traffic (
+                hour INTEGER NOT NULL,
+                session_id INTEGER NOT NULL,
+                app_key TEXT NOT NULL,
+                bytes_in INTEGER NOT NULL DEFAULT 0,
+                bytes_out INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (hour, session_id, app_key)
+            ) WITHOUT ROWID;
             """)
+        if previousVersion < 3 {
+            // Archive ambiguous interpreter-wide rows, without assigning them to Headroom.
+            // Future Python and Headroom samples remain distinguishable from these exact bytes.
+            let keys = """
+                SELECT key FROM apps WHERE
+                  (name = 'Python' AND bundle_path LIKE '%/Python.app') OR
+                  parent_key IN (SELECT key FROM apps WHERE name = 'Python' AND bundle_path LIKE '%/Python.app')
+                """
+            try database.transaction {
+                try database.execute("""
+                    INSERT INTO legacy_app_traffic SELECT * FROM app_traffic WHERE app_key IN (\(keys))
+                    ON CONFLICT(hour, session_id, app_key) DO UPDATE SET
+                      bytes_in = bytes_in + excluded.bytes_in,
+                      bytes_out = bytes_out + excluded.bytes_out;
+                    UPDATE traffic SET
+                      app_in = MAX(0, app_in - COALESCE((SELECT SUM(a.bytes_in) FROM app_traffic a
+                        WHERE a.hour = traffic.hour AND a.session_id = traffic.session_id AND a.app_key IN (\(keys))), 0)),
+                      app_out = MAX(0, app_out - COALESCE((SELECT SUM(a.bytes_out) FROM app_traffic a
+                        WHERE a.hour = traffic.hour AND a.session_id = traffic.session_id AND a.app_key IN (\(keys))), 0));
+                    DELETE FROM app_traffic WHERE app_key IN (\(keys));
+                    PRAGMA user_version = 3;
+                    """)
+            }
+        }
         return database
     }
 

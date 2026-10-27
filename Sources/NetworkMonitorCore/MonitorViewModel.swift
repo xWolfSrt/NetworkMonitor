@@ -46,6 +46,7 @@ public final class MonitorViewModel: ObservableObject {
     @Published public private(set) var rows: [UsageRow] = []
     @Published public private(set) var systemRows: [UsageRow] = []
     @Published public private(set) var proxyTransportRows: [UsageRow] = []
+    @Published public private(set) var legacyRows: [UsageRow] = []
     public var proxyAttributionStartedAt: Date? { store.proxyAttributionStartedAt }
     @Published public private(set) var systemTotal: Int64 = 0
     @Published public private(set) var totalBytesIn: Int64 = 0
@@ -422,10 +423,9 @@ public final class MonitorViewModel: ObservableObject {
     // MARK: nettop sampling
 
     private func recognizeProxyProcesses(_ processes: [Int32: String]) {
-        proxyTransportApps = Set(processes.map { pid, name in
-            let identity = identityResolver.identity(pid: pid, fallbackName: name)
-            return identity.parent?.key ?? identity.key
-        })
+        let identities = processes.map { identityResolver.identity(pid: $0.key, fallbackName: $0.value) }
+        proxyTransportApps = Set(identities.map { $0.parent?.key ?? $0.key })
+        for identity in identities { store.noteProxyTransport(identity) }
         if !proxyTransportApps.isEmpty {
             store.noteProxyAttribution()
             store.identifyProxyTransports(appKeys: proxyTransportApps)
@@ -442,7 +442,8 @@ public final class MonitorViewModel: ObservableObject {
             else if self.perAppFailure != nil { self.perAppFailure = nil }
             let now = Date()
             var transportApps = self.proxyTransportApps
-            for row in sample where row.isProxyTransport {
+            for row in sample where row.isProxyTransport
+                || self.identityResolver.isRuntimeProxy(pid: row.pid, fallbackName: row.processName) {
                 let identity = self.identityResolver.identity(pid: row.pid, fallbackName: row.processName)
                 transportApps.insert(identity.parent?.key ?? identity.key)
             }
@@ -546,6 +547,8 @@ public final class MonitorViewModel: ObservableObject {
                                            lastActivity: lastActivity, now: now,
                                            activityWindow: profile.activityWindow)
         proxyTransportRows = (transports.apps + transports.system).sorted(by: UsageRow.precedes)
+        let legacy = UsageRow.partition(apps: store.currentBucket.legacyApps, lastActivity: [:], now: now)
+        legacyRows = (legacy.apps + legacy.system).sorted(by: UsageRow.precedes)
     }
 
     // MARK: Network changes

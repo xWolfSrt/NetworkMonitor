@@ -42,6 +42,8 @@ public struct NetworkBucket: Codable, Equatable {
     public var apps: [String: AppTotals] = [:]
     /// Forwarding-process totals are informative, never added to app usage again.
     public var proxyTransports: [String: AppTotals] = [:]
+    /// Earlier interpreter-wide records cannot safely be assigned to a runtime tool.
+    public var legacyApps: [String: AppTotals] = [:]
     /// LAN bytes seen by `nettop`, kept out of every figure the app displays.
     ///
     /// Tracked rather than discarded because the headline comes from the kernel's
@@ -94,6 +96,7 @@ public struct NetworkBucket: Codable, Equatable {
         localBytesOut = 0
         apps = [:]
         proxyTransports = [:]
+        legacyApps = [:]
         countingSince = date
     }
 }
@@ -111,6 +114,7 @@ extension NetworkBucket {
             interfaceBytesOut: try container.decodeIfPresent(Int64.self, forKey: .interfaceBytesOut) ?? 0,
             apps: try container.decodeIfPresent([String: AppTotals].self, forKey: .apps) ?? [:],
             proxyTransports: try container.decodeIfPresent([String: AppTotals].self, forKey: .proxyTransports) ?? [:],
+            legacyApps: try container.decodeIfPresent([String: AppTotals].self, forKey: .legacyApps) ?? [:],
             localBytesIn: try container.decodeIfPresent(Int64.self, forKey: .localBytesIn) ?? 0,
             localBytesOut: try container.decodeIfPresent(Int64.self, forKey: .localBytesOut) ?? 0,
             kind: try container.decodeIfPresent(NetworkFingerprint.Kind.self, forKey: .kind) ?? .other,
@@ -141,6 +145,7 @@ struct PersistedState: Codable {
     /// Optional, so an older store still decodes.
     var wifiNames: [String: [String]]?
     var proxyAttributionStartedAt: Date? = nil
+    var runtimeAttributionStartedAt: Date? = nil
 
     static func empty(now: Date = Date(), calendar: Calendar = .current) -> PersistedState {
         PersistedState(dayStart: calendar.startOfDay(for: now), labels: [:], buckets: [:],
@@ -191,6 +196,7 @@ public final class UsageStore {
         self.storeURL = storeURL ?? Self.defaultStoreURL()
         self.state = Self.load(from: self.storeURL, calendar: calendar)
         self.history = history
+        beginRuntimeAttribution()
     }
 
     // MARK: Accumulation
@@ -365,7 +371,7 @@ public final class UsageStore {
     /// a permanent "No Connection" entry holding a few KB.
     private func absorbOfflineBucket(now: Date) {
         let offlineID = NetworkFingerprint.offline.id
-        guard let orphan = state.buckets[offlineID], orphan.interfaceTotal > 0 || !orphan.apps.isEmpty || !orphan.proxyTransports.isEmpty
+        guard let orphan = state.buckets[offlineID], orphan.interfaceTotal > 0 || !orphan.apps.isEmpty || !orphan.proxyTransports.isEmpty || !orphan.legacyApps.isEmpty
         else {
             state.buckets.removeValue(forKey: offlineID)
             return
@@ -376,6 +382,13 @@ public final class UsageStore {
             bucket.interfaceBytesOut += orphan.interfaceBytesOut
             bucket.localBytesIn += orphan.localBytesIn
             bucket.localBytesOut += orphan.localBytesOut
+            for (key, totals) in orphan.legacyApps {
+                if var existing = bucket.legacyApps[key] {
+                    existing.bytesIn += totals.bytesIn; existing.bytesOut += totals.bytesOut
+                    existing.lastActive = max(existing.lastActive, totals.lastActive)
+                    bucket.legacyApps[key] = existing
+                } else { bucket.legacyApps[key] = totals }
+            }
             for (key, totals) in orphan.proxyTransports {
                 if var existing = bucket.proxyTransports[key] {
                     existing.bytesIn += totals.bytesIn
@@ -440,6 +453,32 @@ public final class UsageStore {
     }
 
     // MARK: Reads
+
+    private func beginRuntimeAttribution() {
+        guard state.runtimeAttributionStartedAt == nil else { return }
+        for id in state.buckets.keys {
+            let apps = state.buckets[id]!.apps
+            let roots = Set(apps.compactMap { key, value in
+                value.displayName == "Python" && (value.bundlePath?.hasSuffix("/Python.app") ?? false) ? key : nil
+            })
+            for (key, value) in apps where roots.contains(key) || value.parent.map({ roots.contains($0.key) }) == true {
+                state.buckets[id]!.legacyApps[key] = value
+                state.buckets[id]!.apps.removeValue(forKey: key)
+            }
+        }
+        state.runtimeAttributionStartedAt = Date()
+        dirty = true
+    }
+
+    public func noteProxyTransport(_ identity: AppIdentity) {
+        guard currentBucket.proxyTransports[identity.key] == nil else { return }
+        withCurrentBucket(now: Date()) { bucket in
+            bucket.proxyTransports[identity.key] = AppTotals(displayName: identity.displayName,
+                bundlePath: identity.bundlePath, isSystem: identity.isSystem, parent: identity.parent)
+        }
+    }
+
+    public var runtimeAttributionStartedAt: Date? { state.runtimeAttributionStartedAt }
 
     public func identifyProxyTransports(appKeys: Set<String>) {
         let keys = currentBucket.apps.compactMap { key, totals in

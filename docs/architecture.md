@@ -335,3 +335,9 @@ Preferences (`com.kevinabouhanna.NetworkMonitor`): `speedTestUnit`, `speedTestSt
 `historyRetention`, `settingsPane`, `meteringEnabled`, `meteringExcludedItems`,
 `meteringUpdateSightings`, `hasConfiguredLoginItem`, `helperOfferedForBuild`.
 `powerProfile` is read only as a launch argument, never stored.
+
+### Runtime proxy identity and earlier mixed usage
+
+Known Headroom entry points are identified through bounded current-user process metadata before Python.app path grouping. Its explicit local listener joins the loopback endpoint set, allowing client → Headroom → system proxy chains to keep the originating app separate from each transport hop. See [Headroom accounting](agent-context/headroom-accounting.md).
+
+Ambiguous pre-upgrade Python rows are retained separately in JSON `legacyApps` and SQLite `legacy_app_traffic` (schema 3). They remain inspectable without entering ordinary app rankings, lower bounds or CSV totals. This preserves evidence while avoiding a speculative assignment of old bytes to Headroom.

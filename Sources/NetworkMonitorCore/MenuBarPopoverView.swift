@@ -69,7 +69,7 @@ public struct MenuBarPopoverView: View {
     /// Deriving the height instead makes the very first layout correct, so the
     /// popover is placed once against a size that is already final.
     private var listHeight: CGFloat {
-        PopoverMetrics.listHeight(appRows: model.rows.count + model.proxyTransportRows.count,
+        PopoverMetrics.listHeight(appRows: model.rows.count + model.proxyTransportRows.count + model.legacyRows.count,
                                   expandedChildRows: expandedChildRows,
                                   systemRowCount: model.systemRows.count,
                                   systemExpanded: model.systemExpanded,
@@ -78,7 +78,7 @@ public struct MenuBarPopoverView: View {
 
     /// True only when there are genuinely more rows than fit.
     private var listScrolls: Bool {
-        PopoverMetrics.scrolls(appRows: model.rows.count + model.proxyTransportRows.count,
+        PopoverMetrics.scrolls(appRows: model.rows.count + model.proxyTransportRows.count + model.legacyRows.count,
                                expandedChildRows: expandedChildRows,
                                systemRowCount: model.systemRows.count,
                                systemExpanded: model.systemExpanded,
@@ -113,7 +113,7 @@ public struct MenuBarPopoverView: View {
                     SpeedTestStrip(speedTest: speedTest)
                     Divider()
                 }
-                if model.rows.isEmpty && model.systemRows.isEmpty && model.proxyTransportRows.isEmpty {
+                if model.rows.isEmpty && model.systemRows.isEmpty && model.proxyTransportRows.isEmpty && model.legacyRows.isEmpty {
                     emptyState
                 } else {
                     list
@@ -231,6 +231,7 @@ public struct MenuBarPopoverView: View {
                 ForEach(model.proxyTransportRows) { row in
                     proxyTransportRow(row)
                 }
+                ForEach(model.legacyRows) { row in legacyRow(row) }
             }
             .padding(.vertical, PopoverMetrics.listVerticalPadding / 2)
             // Applied here rather than to the ScrollView so it animates the rows
@@ -283,6 +284,15 @@ public struct MenuBarPopoverView: View {
                            fraction: fraction(of: child.total), indented: true)
             }
         }
+    }
+
+    private func legacyRow(_ row: UsageRow) -> some View {
+        let labelled = UsageRow(id: row.id, displayName: row.displayName + " · Earlier mixed usage",
+            bytesIn: row.bytesIn + row.children.reduce(0) { $0 + $1.bytesIn },
+            bytesOut: row.bytesOut + row.children.reduce(0) { $0 + $1.bytesOut },
+            bundlePath: row.bundlePath, isSystem: row.isSystem, isActive: false)
+        return AppRowView(row: labelled, icon: model.icon(for: row), fraction: 0, isMuted: true)
+            .help("Kept from before Headroom was identified separately. These mixed bytes cannot be reassigned safely and are outside current app totals.")
     }
 
     private func proxyTransportRow(_ row: UsageRow) -> some View {

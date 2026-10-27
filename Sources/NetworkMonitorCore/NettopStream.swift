@@ -87,7 +87,9 @@ public final class NettopStream {
                 interfaceScope: InterfaceScope = .external,
                 proxyEndpoints: @escaping () -> Set<LocalProxyEndpoint> = SystemProxyEndpoints.current) {
         self.interfaceScope = interfaceScope
-        self.parser = NettopParser(loopbackOnly: interfaceScope == .loopback)
+        let tools = RuntimeToolLookup()
+        self.parser = NettopParser(loopbackOnly: interfaceScope == .loopback,
+            processProxyEndpoints: { pid, name in tools.tool(pid: pid, processName: name)?.proxyEndpoints ?? [] })
         self.childTracker = NettopChildTracker(recordURL: interfaceScope == .loopback
             ? NettopChildTracker.loopbackRecordURL : NettopChildTracker.defaultRecordURL)
         self.proxyEndpointsProvider = proxyEndpoints

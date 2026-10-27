@@ -34,3 +34,7 @@ Approved 2026-10-26 (Asia/Shanghai). Scope: improve the existing local Fork and 
 - `make test`: 475 tests / 1503 assertions passed, with all live checks enabled. The bounded real-nettop fixture transferred 1 MiB each through two localhost services and confirmed original-client attribution, zero server-side billing and zero unrelated-localhost billing.
 - Fixtures also cover the view-model two-stream path, priming roles, closed-socket root exclusion, UDP same-port exclusion, SQLite v1 compatibility, reopen/retention/clear and CSV separation.
 - Native build, installed data and owned-child checks are recorded in `current-project-state.md` after replacement. No real speed test or proxy-setting change is part of validation.
+
+## Headroom extension (2026-10-27)
+
+The initial single-system-proxy contract is extended by `headroom-accounting.md`: exact Headroom runtime identity, explicit loopback listener discovery and multiple forwarding hops. Its version-3 legacy archive supersedes the original treatment of ambiguous interpreter-wide Python history; no earlier bytes are guessed to belong to Headroom.

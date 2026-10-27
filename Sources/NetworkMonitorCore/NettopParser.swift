@@ -74,15 +74,26 @@ public struct NettopParser {
     private var sawFirstSample = false
     private var pending: [NettopRow] = []
     private var buffer = ""
+    private var proxyConnections: [Int: [Connection]] = [:]
+    private var proxyTopologyChanged = false
+    private var rolesAtFrameStart: [Int32: String] = [:]
+    private var retiredKnownProxyPIDs: Set<Int32> = []
 
     public var proxyEndpoints: Set<LocalProxyEndpoint> {
-        didSet { if proxyEndpoints != oldValue { proxyProcesses.removeAll() } }
+        didSet { if proxyEndpoints != oldValue { proxyProcesses.removeAll(); rolesAtFrameStart.removeAll() } }
     }
     private var proxyProcesses: [Int32: String] = [:]
     public var proxyTransportProcesses: [Int32: String] { proxyProcesses }
     private let loopbackOnly: Bool
+    private let processProxyEndpoints: (Int32, String) -> Set<LocalProxyEndpoint>
+    private var discoveredEndpoints: [Int32: (name: String, endpoints: Set<LocalProxyEndpoint>)] = [:]
+    private var effectiveProxyEndpoints: Set<LocalProxyEndpoint> {
+        discoveredEndpoints.values.reduce(proxyEndpoints) { $0.union($1.endpoints) }
+    }
 
-    public init(proxyEndpoints: Set<LocalProxyEndpoint> = [], loopbackOnly: Bool = false) {
+    public init(proxyEndpoints: Set<LocalProxyEndpoint> = [], loopbackOnly: Bool = false,
+                processProxyEndpoints: @escaping (Int32, String) -> Set<LocalProxyEndpoint> = { _, _ in [] }) {
+        self.processProxyEndpoints = processProxyEndpoints
         self.loopbackOnly = loopbackOnly
         self.proxyEndpoints = proxyEndpoints
     }
@@ -114,7 +125,23 @@ public struct NettopParser {
                 continue
             }
             if var row = Self.parseRow(line) {
+                if pending.isEmpty { rolesAtFrameStart = proxyProcesses }
                 row.isLoopbackSample = loopbackOnly
+                if loopbackOnly {
+                    let found = processProxyEndpoints(row.pid, row.processName)
+                    if !found.isEmpty {
+                        if discoveredEndpoints[row.pid]?.endpoints != found || discoveredEndpoints[row.pid]?.name != row.processName {
+                            proxyTopologyChanged = true
+                        }
+                        discoveredEndpoints[row.pid] = (row.processName, found)
+                        proxyProcesses[row.pid] = row.processName
+                        row.isProxyTransport = true
+                    } else if discoveredEndpoints.removeValue(forKey: row.pid) != nil {
+                        proxyTopologyChanged = true
+                        retiredKnownProxyPIDs.insert(row.pid)
+                        proxyProcesses.removeValue(forKey: row.pid)
+                    }
+                }
                 pending.append(row)
             }
         }
@@ -124,8 +151,9 @@ public struct NettopParser {
     /// Adds a connection's bytes to its parent process, if they stayed local.
     private mutating func foldConnection(_ connection: Connection) {
         guard let index = pending.indices.last else { return }
-        let proxy = LocalProxyConnection(label: connection.label, endpoints: proxyEndpoints)
+        let proxy = LocalProxyConnection(label: connection.label, endpoints: effectiveProxyEndpoints)
         guard connection.scope.isLocal || proxy.isLoopback else { return }
+        if loopbackOnly, proxy.isLoopback { proxyConnections[index, default: []].append(connection) }
         var parent = pending[index]
         parent.localBytesIn += connection.bytesIn
         parent.localBytesOut += connection.bytesOut
@@ -197,14 +225,47 @@ public struct NettopParser {
     public var hasPartialLine: Bool { !buffer.isEmpty }
 
     private mutating func closeSample() -> [NettopRow]? {
-        defer { pending = [] }
+        defer {
+            pending = []
+            proxyConnections.removeAll(keepingCapacity: true)
+            proxyTopologyChanged = false
+            rolesAtFrameStart.removeAll(keepingCapacity: true)
+            retiredKnownProxyPIDs.removeAll(keepingCapacity: true)
+        }
         guard !pending.isEmpty else { return nil }
+        let live = Dictionary(pending.map { ($0.pid, $0.processName) }, uniquingKeysWith: { _, last in last })
+        let liveEndpoints = discoveredEndpoints.filter { live[$0.key] == $0.value.name }
+        if liveEndpoints.count != discoveredEndpoints.count { proxyTopologyChanged = true }
+        discoveredEndpoints = liveEndpoints
+        // nettop may write the client before the newly started proxy. Revisit
+        // only that frame after every process's endpoint has been discovered.
+        if proxyTopologyChanged {
+            let endpoints = effectiveProxyEndpoints
+            proxyProcesses = rolesAtFrameStart.filter { live[$0.key] == $0.value && !retiredKnownProxyPIDs.contains($0.key) }
+            for (pid, known) in discoveredEndpoints { proxyProcesses[pid] = known.name }
+            for (index, connections) in proxyConnections {
+                pending[index].proxyBytesIn = 0; pending[index].proxyBytesOut = 0
+                pending[index].isProxyTransport = discoveredEndpoints[pending[index].pid] != nil
+                    || proxyProcesses[pending[index].pid] == pending[index].processName
+                if discoveredEndpoints[pending[index].pid] != nil {
+                    proxyProcesses[pending[index].pid] = pending[index].processName
+                }
+                for connection in connections {
+                    let role = LocalProxyConnection(label: connection.label, endpoints: endpoints).role
+                    if role == .client {
+                        pending[index].proxyBytesIn += connection.bytesIn
+                        pending[index].proxyBytesOut += connection.bytesOut
+                    } else if role == .transport {
+                        pending[index].isProxyTransport = true
+                        proxyProcesses[pending[index].pid] = pending[index].processName
+                    }
+                }
+            }
+        }
         guard sawFirstSample else {
             sawFirstSample = true   // priming sample: cumulative, not a delta
             return nil
         }
-        let live = Dictionary(pending.map { ($0.pid, $0.processName) },
-                              uniquingKeysWith: { _, last in last })
         proxyProcesses = proxyProcesses.filter { live[$0.key] == $0.value }
         return pending.map { row in
             var row = row
@@ -218,6 +279,12 @@ public struct NettopParser {
         sawFirstSample = false
         pending = []
         buffer = ""
+        proxyConnections.removeAll()
+        discoveredEndpoints.removeAll()
+        proxyProcesses.removeAll()
+        rolesAtFrameStart.removeAll()
+        retiredKnownProxyPIDs.removeAll()
+        proxyTopologyChanged = false
     }
 
     public static func isHeader(_ line: String) -> Bool {

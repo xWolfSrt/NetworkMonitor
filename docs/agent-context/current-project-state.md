@@ -47,3 +47,10 @@ The optional Hotspot feature can pause security updates and leaves update suppre
 
 - Installation validation: both owned nettop kernel identities and mode-0600 records matched the running App. All 936 previous ordinary-app history rows and 29 proxy-transport rows retained at least their previous bytes. Preferences were unchanged, with no custom-colour overrides, so automatic contrast is active. Hotspot remained off and privileged components remained absent.
 - Rollback App, stopped data, preferences and `runtime-verification.json`: `backups/before-legibility-20261027-111832` (mode 0700, Git-ignored). Earlier rollback sets remain intact. Local branch: `codex/menu-bar-legibility`; nothing was pushed remotely. Pixel layout was verified in rendered images; a separate manual desktop screenshot acceptance was not performed.
+
+## Headroom accounting (2026-10-27)
+
+- Headroom module/console entry points now have stable identity `runtime:headroom`, independent of Python.app. Its explicit local proxy listener participates in chained attribution; forwarding hops are separate from original-app counters, including direct-upstream and transient-order cases.
+- Earlier mixed Python and adopted-child records are preserved as separate informational legacy usage. SQLite version 3 migrates exact old rows transactionally and keeps physical/session counters intact. New ordinary Python, Headroom transport and the earlier archive remain distinct across reopening.
+- All 487 tests / 1573 assertions passed, with real-nettop one-hop/two-hop loopback checks, process-lifecycle checks and no real speed test. See `headroom-accounting.md` for measured regressions, scope and privacy boundaries.
+- Native build, backup and installed runtime validation are pending below; no remote push or repository setting change is authorised.
