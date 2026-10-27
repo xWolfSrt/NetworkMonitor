@@ -102,14 +102,14 @@ struct GeneralSettingsPane: View {
                 // on the next click in Settings.
                 HStack {
                     Spacer()
-                    Button("Use Default Colors") { colors.reset() }
+                    Button("Use Automatic Contrast") { colors.reset() }
                         .disabled(colors.isDefault)
                 }
             } header: {
                 Text("Menu bar colors")
             } footer: {
-                SettingsFootnote("A speed test shows its figures in its own colors, kept clear of "
-                                 + "these, so they're never taken for live rates.")
+                SettingsFootnote("Default live rates use the system's menu bar contrast. Picking a color "
+                                 + "uses custom colors instead. A speed test keeps its own colors.")
             }
 
             Section {

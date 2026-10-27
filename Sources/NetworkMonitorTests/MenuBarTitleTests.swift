@@ -236,15 +236,54 @@ func runMenuBarTitleTests() {
             Check.expectTrue(lines[1].contains("28.69 KB/s"), "got ‘\(lines[1])’")
         }
 
-        /// The stacked pair has to fit the 22 pt menu bar. At 9 pt it measured
-        /// exactly 22.0 and the top line's ascenders were clipped once the
-        /// button's insets applied, so there must be real margin.
+        /// The drawn glyphs must fit the 22 pt menu bar with real margin;
+        /// natural multiline leading is no longer the raster's layout budget.
         Check.test("two lines fit inside the menu bar height") {
             for (down, up, _) in cases {
                 let height = MenuBarTitle.renderedHeight(down: down, up: up)
                 Check.expectTrue(height < Double(MenuBarTitle.menuBarHeight),
                                  "two-line height \(height) must be under "
                                  + "\(MenuBarTitle.menuBarHeight) pt")
+            }
+        }
+
+        Check.test("the default live image follows system contrast while custom colours stay explicit") {
+            let defaults = UserDefaults(suiteName: "menu-bar-contrast-" + UUID().uuidString)!
+            let colors = MenuBarColors(defaults: defaults)
+            let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let model = MonitorViewModel(store: UsageStore(storeURL: directory.appendingPathComponent("usage.json")),
+                                         menuBarColors: colors)
+            Check.expectTrue(model.menuBarImage.isTemplate, "macOS must choose a readable foreground")
+            colors.download = MenuBarColors.color(hex: "#007AFF")!
+            Check.expectFalse(model.menuBarImage.isTemplate, "keep an explicitly selected colour")
+            colors.reset()
+            Check.expectTrue(model.menuBarImage.isTemplate, "reset must restore automatic contrast")
+        }
+
+        Check.test("larger glyphs keep clear edges and a gap between lines at 1x and 2x") {
+            for scale in [1, 2] {
+                let image = MenuBarTitle.image(down: 877 * 1024, up: 128 * 1024, automaticContrast: true)
+                let width = Int(image.size.width) * scale, height = Int(image.size.height) * scale
+                let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+                let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = context
+                context.cgContext.scaleBy(x: CGFloat(scale), y: CGFloat(scale))
+                // Draw the template's source mask; AppKit tints it inside the real status button.
+                image.isTemplate = false
+                image.draw(in: NSRect(origin: .zero, size: image.size))
+                NSGraphicsContext.restoreGraphicsState()
+                let occupied = (0..<height).map { y in
+                    (0..<width).contains { x in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.05 }
+                }
+                Check.expectFalse(occupied[0], "top edge clips glyphs at \(scale)x")
+                Check.expectFalse(occupied[height - 1], "bottom edge clips glyphs at \(scale)x")
+                Check.expectTrue(occupied.contains(true), "render must contain text")
+                let bands = zip(occupied, [false] + occupied.dropLast()).filter { $0 && !$1 }.count
+                Check.expectEqual(bands, 2, "upload and download need two separate, unclipped bands")
             }
         }
 

@@ -37,3 +37,10 @@ The optional Hotspot feature can pause security updates and leaves update suppre
 - Rollback App, stopped local data and preferences: `backups/before-proxy-20261026-182822` (mode 0700, Git-ignored), with `runtime-verification.json`. The earlier security rollback remains intact.
 - Proxy configuration and login-item registration were not changed. Menu/history views compile and their runtime data path is verified; visual layout and next-login relaunch were not manually re-accepted during this replacement.
 - This is a local installation only. Nothing was pushed, no issue/PR/release was created, and no repository settings were changed.
+
+## Menu bar legibility (2026-10-27)
+
+- User reported unreadable menu-bar rates over a light wallpaper. The previous title used 8.5 pt regular text with fixed pale green/grey colours.
+- Live rates now use a macOS template image at the default colour settings, allowing the status button to supply its foreground for appearance, wallpaper and selection. Explicit custom colours remain non-template images. The Settings reset action is labelled “Use Automatic Contrast”; no new preference or preference migration is required.
+- The two rows use 10 pt semibold monospaced glyphs drawn on separate CoreText baselines within the existing 22 pt image. Rate formatting and constant-width behaviour remain unchanged; the status item is slightly wider because its text is larger. Speed-test colours remain explicitly selected by the existing test palette.
+- `make test`: 477 tests / 1518 assertions passed, including all live checks and new template/custom-colour and 1×/2× unclipped-glyph raster regressions. No real speed test ran. Installation/rollback details follow after the native build is validated.

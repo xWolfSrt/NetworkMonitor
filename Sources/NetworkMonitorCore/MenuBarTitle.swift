@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 
 /// Builds the status item's title: two stacked lines, download above upload.
 ///
@@ -7,13 +8,11 @@ import AppKit
 /// immediately visible as the whole menu bar twitching on every sample.
 public enum MenuBarTitle {
 
-    /// The menu bar is 22 pt tall, so the stacked pair must fit inside that.
-    ///
-    /// Measured two-line heights at natural leading: 8.0 pt → 20.0, 8.5 pt →
-    /// 20.0, 9.0 pt → 22.0, 9.5 pt → 24.0. 8.5 pt is the largest size that
-    /// leaves any margin. 9 pt measures as *exactly* 22 pt and the top line's
-    /// ascenders were visibly clipped once the button's own insets applied.
-    static let fontSize: CGFloat = 8.5
+    /// Compact glyph baselines let 10 pt semibold text fit two readable rows
+    /// inside the menu bar without the padding of a multiline text container.
+    static let fontSize: CGFloat = 10
+    private static let lowerBaseline: CGFloat = 2
+    private static let linePitch: CGFloat = 11
 
     /// Height budget for the status item, for the fit test.
     public static let menuBarHeight: CGFloat = 22
@@ -25,17 +24,14 @@ public enum MenuBarTitle {
     /// render at different widths no matter how carefully the string is padded.
     /// A fully monospaced font makes equal character counts mean equal pixel
     /// widths, which is what the padding in `ByteFormat.menuBarRate` relies on.
-    public static let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+    public static let font = NSFont.monospacedSystemFont(ofSize: fontSize, weight: .semibold)
 
-    /// Download line colour by default, `#51FF70`. Settings can change both
-    /// (#45); see `MenuBarColors`.
+    /// Starting download palette for custom colours, `#51FF70`.
+    /// The default live status item instead uses macOS template contrast.
     public static let downTint = NSColor(srgbRed: 0x51 / 255, green: 0xFF / 255,
                                          blue: 0x70 / 255, alpha: 1)
-    /// Upload line colour by default, `#E5E5E5`.
-    ///
-    /// Fixed sRGB values as specified, so they do not adapt to appearance. Both
-    /// are light and read well on a dark menu bar; on a light menu bar the upload
-    /// line is close to the background, which is one reason to change it.
+    /// Starting upload palette for custom colours, `#E5E5E5`.
+    /// These fixed values remain available when a user explicitly picks colours.
     public static let upTint = NSColor(srgbRed: 0xE5 / 255, green: 0xE5 / 255,
                                        blue: 0xE5 / 255, alpha: 1)
 
@@ -116,11 +112,16 @@ public enum MenuBarTitle {
     /// measured height fit inside 22 pt. Drawing into a correctly sized image
     /// and letting the button centre that image removes the guesswork entirely.
     ///
-    /// `isTemplate = false` is what preserves the green; a template image would
-    /// be recoloured to the monochrome menu bar tint.
+    /// Automatic contrast uses a template mask so macOS chooses the menu bar's
+    /// foreground, including wallpaper, appearance and highlighted-item changes.
+    /// Explicit custom colours remain opaque, non-template images.
     public static func image(down: Double, up: Double, unit: SpeedUnit = .bytes,
-                             tints: MenuBarTints = .live) -> NSImage {
-        image(attributed(down: down, up: up, unit: unit, tints: tints))
+                             tints: MenuBarTints = .live,
+                             automaticContrast: Bool = false) -> NSImage {
+        let palette = automaticContrast ? MenuBarTints(down: .black, up: .black) : tints
+        let result = image(attributed(down: down, up: up, unit: unit, tints: palette))
+        result.isTemplate = automaticContrast
+        return result
     }
 
     /// The speed test's title, drawn exactly as the live one is.
@@ -129,18 +130,30 @@ public enum MenuBarTitle {
         image(speedTestAttributed(downBits: downBits, upBits: upBits, unit: unit, tints: tints))
     }
 
-    private static func image(_ text: NSAttributedString) -> NSImage {
-        let textSize = text.size()
-        let size = NSSize(width: ceil(textSize.width), height: menuBarHeight)
+    private static func lines(_ text: NSAttributedString) -> [CTLine] {
+        var start = 0
+        return text.string.components(separatedBy: "\n").map { value in
+            let range = NSRange(location: start, length: (value as NSString).length)
+            start += range.length + 1
+            return CTLineCreateWithAttributedString(text.attributedSubstring(from: range))
+        }
+    }
 
+    private static func baseline(for index: Int) -> CGFloat {
+        lowerBaseline + (index == 0 ? linePitch : 0)
+    }
+
+    private static func image(_ text: NSAttributedString) -> NSImage {
+        let size = NSSize(width: ceil(text.size().width), height: menuBarHeight)
         let image = NSImage(size: size)
         image.lockFocus()
-        // Flipped-text-in-unflipped-context: the rect's origin is bottom-left and
-        // the string fills it downward from the top, so centring the rect
-        // vertically centres the glyphs.
-        let inset = (size.height - textSize.height) / 2
-        text.draw(in: NSRect(x: 0, y: inset,
-                             width: size.width, height: textSize.height))
+        if let context = NSGraphicsContext.current?.cgContext {
+            context.textMatrix = .identity
+            for (index, line) in lines(text).enumerated() {
+                context.textPosition = CGPoint(x: 0, y: baseline(for: index))
+                CTLineDraw(line, context)
+            }
+        }
         image.unlockFocus()
         image.isTemplate = false
         return image
@@ -153,6 +166,9 @@ public enum MenuBarTitle {
 
     /// Rendered height in points, for the menu-bar-fit test.
     public static func renderedHeight(down: Double, up: Double) -> Double {
-        Double(attributed(down: down, up: up).size().height)
+        let bounds = lines(attributed(down: down, up: up)).enumerated().map { index, line in
+            CTLineGetImageBounds(line, nil).offsetBy(dx: 0, dy: baseline(for: index))
+        }
+        return Double(bounds.reduce(CGRect.null) { $0.union($1) }.height)
     }
 }

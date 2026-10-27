@@ -668,6 +668,7 @@ public final class MonitorViewModel: ObservableObject {
                                                unit: speedTest.unit, tints: menuBarColors.test)
         }
         return MenuBarTitle.image(down: downBytesPerSecond, up: upBytesPerSecond,
-                                  unit: speedTest.unit, tints: menuBarColors.live)
+                                  unit: speedTest.unit, tints: menuBarColors.live,
+                                  automaticContrast: menuBarColors.isDefault)
     }
 }
