@@ -8,10 +8,10 @@ public enum HistoryScale: String, CaseIterable, Identifiable {
 
     public var label: String {
         switch self {
-        case .day:   return "Day"
-        case .week:  return "Week"
-        case .month: return "Month"
-        case .year:  return "Year"
+        case .day:   return L10n.text("Day")
+        case .week:  return L10n.text("Week")
+        case .month: return L10n.text("Month")
+        case .year:  return L10n.text("Year")
         }
     }
 
@@ -109,19 +109,19 @@ public struct HistoryPeriod: Equatable {
 
     /// "Today", "Last Week", "October 2026" — the name in the window's header.
     public func title(now: Date = Date(), calendar: Calendar = .current,
-                      locale: Locale = .current) -> String {
+                      locale: Locale = L10n.locale) -> String {
         let current = HistoryPeriod(scale: scale, containing: now, calendar: calendar)
         let sameYear = calendar.component(.year, from: interval.start)
             == calendar.component(.year, from: now)
 
         switch scale {
         case .day:
-            if current == self { return "Today" }
-            if current.shifted(by: -1, calendar: calendar) == self { return "Yesterday" }
+            if current == self { return L10n.text("Today") }
+            if current.shifted(by: -1, calendar: calendar) == self { return L10n.text("Yesterday") }
             return Self.format(interval.start, sameYear ? "EEEEMMMd" : "yMMMd", calendar, locale)
         case .week:
-            if current == self { return "This Week" }
-            if current.shifted(by: -1, calendar: calendar) == self { return "Last Week" }
+            if current == self { return L10n.text("This Week") }
+            if current.shifted(by: -1, calendar: calendar) == self { return L10n.text("Last Week") }
             let formatter = DateIntervalFormatter()
             formatter.calendar = calendar
             formatter.locale = locale

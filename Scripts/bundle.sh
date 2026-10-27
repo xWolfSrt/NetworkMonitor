@@ -129,6 +129,14 @@ cp "$PLIST_SRC" "${APP}/Contents/Info.plist"
 cp Resources/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
 printf 'APPL????' > "${APP}/Contents/PkgInfo"
 
+# SwiftPM's generated accessor has a build-directory fallback. Ship the resources
+# inside the app too, so installed copies never depend on the source checkout.
+RESOURCE_DIR=".build/release"
+if [ "$UNIVERSAL" -eq 1 ]; then
+  RESOURCE_DIR="$(./Scripts/swiftpm.sh build -c release --triple arm64-apple-macosx13.0 --scratch-path .build/arm64 --show-bin-path 2>/dev/null)"
+fi
+cp -R "${RESOURCE_DIR}/NetworkMonitor_NetworkMonitorCore.bundle" "${APP}/Contents/Resources/"
+
 # The privileged helper and the script that installs it, carried inside the app
 # so that Settings can install, update and remove them with one administrator
 # prompt — no Terminal. Contents/Library/LaunchServices is where macOS expects a

@@ -82,14 +82,14 @@ public enum MeteredHeuristic {
         /// Shown in the popover next to the METERED badge.
         public var explanation: String {
             switch self {
-            case .userMarked:          return "You marked this network as metered."
-            case .userCleared:         return "You marked this network as not metered."
-            case .expensive:           return "macOS reports this connection as a hotspot."
-            case .iOSHotspotSubnet:    return "This looks like an iPhone Personal Hotspot."
-            case .androidTetherSubnet: return "This looks like a phone sharing its connection."
-            case .tetherInterface:     return "You're tethered through a phone."
-            case .constrained:         return "This network is in Low Data Mode."
-            case .unmetered:           return "This connection isn't metered."
+            case .userMarked:          return L10n.text("You marked this network as metered.")
+            case .userCleared:         return L10n.text("You marked this network as not metered.")
+            case .expensive:           return L10n.text("macOS reports this connection as a hotspot.")
+            case .iOSHotspotSubnet:    return L10n.text("This looks like an iPhone Personal Hotspot.")
+            case .androidTetherSubnet: return L10n.text("This looks like a phone sharing its connection.")
+            case .tetherInterface:     return L10n.text("You're tethered through a phone.")
+            case .constrained:         return L10n.text("This network is in Low Data Mode.")
+            case .unmetered:           return L10n.text("This connection isn't metered.")
             }
         }
     }

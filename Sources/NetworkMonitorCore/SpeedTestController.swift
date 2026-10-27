@@ -12,8 +12,8 @@ public enum SpeedTestStyle: String, CaseIterable, Identifiable {
 
     public var label: String {
         switch self {
-        case .card:    return "Card"
-        case .compact: return "Compact"
+        case .card:    return L10n.text("Card")
+        case .compact: return L10n.text("Compact")
         }
     }
 }

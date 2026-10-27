@@ -10,6 +10,7 @@ import SwiftUI
 /// its chip above the chart undoes that. That replaces a row of pop-up menus
 /// with the list the user was already reading.
 public struct HistoryView: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var model: HistoryViewModel
 
     public init(model: HistoryViewModel) {
@@ -24,8 +25,7 @@ public struct HistoryView: View {
             filterBar
             summary
             if let since = model.proxyAttributionStartedAt {
-                Text("Proxy attribution since " + since.formatted(.dateTime.month().day().hour().minute())
-                     + ". Earlier traffic is unchanged. Proxy transport is not added again.")
+                Text(L10n.text("Proxy attribution since \(since.formatted(.dateTime.month().day().hour().minute().locale(L10n.locale))). Earlier traffic is unchanged. Proxy transport is not added again."))
                     .font(.system(size: 11)).foregroundStyle(.secondary)
             }
             HistoryChart(model: model)
@@ -44,7 +44,7 @@ public struct HistoryView: View {
 
     private var navigation: some View {
         HStack(spacing: 10) {
-            Picker("Show", selection: Binding(get: { model.scale }, set: { model.scale = $0 })) {
+            Picker(L10n.text("Show"), selection: Binding(get: { model.scale }, set: { model.scale = $0 })) {
                 ForEach(HistoryScale.allCases) { scale in
                     Text(scale.label).tag(scale)
                 }
@@ -61,7 +61,7 @@ public struct HistoryView: View {
             .buttonStyle(.borderless)
             .disabled(!model.canStepBack)
             .keyboardShortcut(.leftArrow, modifiers: [.command])
-            .help("Previous \(model.scale.label.lowercased())")
+            .help(L10n.text("Previous \(model.scale.label.lowercased())"))
 
             Text(model.title)
                 .font(.system(size: 13, weight: .semibold))
@@ -73,7 +73,7 @@ public struct HistoryView: View {
             .buttonStyle(.borderless)
             .disabled(!model.canStepForward)
             .keyboardShortcut(.rightArrow, modifiers: [.command])
-            .help("Next \(model.scale.label.lowercased())")
+            .help(L10n.text("Next \(model.scale.label.lowercased())"))
 
             // Held in place but hidden on the current period, where it would
             // only repeat the title beside it.
@@ -85,10 +85,10 @@ public struct HistoryView: View {
 
     private var presentLabel: String {
         switch model.scale {
-        case .day:   return "Today"
-        case .week:  return "This Week"
-        case .month: return "This Month"
-        case .year:  return "This Year"
+        case .day:   return L10n.text("Today")
+        case .week:  return L10n.text("This Week")
+        case .month: return L10n.text("This Month")
+        case .year:  return L10n.text("This Year")
         }
     }
 
@@ -109,28 +109,28 @@ public struct HistoryView: View {
                                + " · " + HistoryFormat.sessionSpan(session),
                            onClear: model.clearSession)
             } else if model.filter.sessionID != nil {
-                FilterChip(label: "Session", onClear: model.clearSession)
+                FilterChip(label: L10n.text("Session"), onClear: model.clearSession)
             }
             if model.filter.appKey == nil && model.filter.networkID == nil
                 && model.filter.sessionID == nil {
-                Text("Click an app, network or session to see only its usage.")
+                Text(L10n.text("Click an app, network or session to see only its usage."))
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
             Spacer(minLength: 8)
             // Wi-Fi and Hotspot, the two kinds asked for in #70. Ethernet and
             // Other stay under All, and on the Networks list.
-            Picker("Networks", selection: Binding(get: { model.kind }, set: { model.kind = $0 })) {
-                Text("All").tag(NetworkFingerprint.Kind?.none)
+            Picker(L10n.text("Networks"), selection: Binding(get: { model.kind }, set: { model.kind = $0 })) {
+                Text(L10n.text("All")).tag(NetworkFingerprint.Kind?.none)
                 ForEach([NetworkFingerprint.Kind.wifi, .hotspot], id: \.self) { kind in
-                    Text(kind.historyLabel).tag(NetworkFingerprint.Kind?.some(kind))
+                    Text(L10n.translate(kind.historyLabel)).tag(NetworkFingerprint.Kind?.some(kind))
                 }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
             .controlSize(.small)
-            .help("Every connection, Wi-Fi only, or hotspots only")
+            .help(L10n.text("Every connection, Wi-Fi only, or hotspots only"))
         }
         .frame(height: 22)
     }
@@ -139,14 +139,14 @@ public struct HistoryView: View {
 
     private var summary: some View {
         HStack(alignment: .firstTextBaseline, spacing: 32) {
-            stat("Total", ByteFormat.bytes(report.total), prominent: true)
+            stat(L10n.text("Total"), ByteFormat.bytes(report.total), prominent: true)
             if model.scale != .day {
                 let days = report.period.elapsedDays(now: Date())
-                stat("Daily average",
+                stat(L10n.text("Daily average"),
                      days > 0 ? ByteFormat.bytes(report.total / Int64(days)) : "—")
             }
             if model.kind == nil {
-                stat("On metered connections", ByteFormat.bytes(report.meteredBytes))
+                stat(L10n.text("On metered connections"), ByteFormat.bytes(report.meteredBytes))
             }
             Spacer()
         }
@@ -175,7 +175,7 @@ public struct HistoryView: View {
                         RoundedRectangle(cornerRadius: 2)
                             .fill(HistoryPalette.color(for: kind))
                             .frame(width: 10, height: 10)
-                        Text(kind.historyLabel)
+                        Text(L10n.translate(kind.historyLabel))
                             .foregroundStyle(.secondary)
                         Text(ByteFormat.bytes(bytes))
                             .monospacedDigit()
@@ -192,7 +192,7 @@ public struct HistoryView: View {
 
     private var lists: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Picker("List", selection: $model.tab) {
+            Picker(L10n.text("List"), selection: $model.tab) {
                 ForEach(HistoryViewModel.Tab.allCases) { tab in
                     Text(tab.label).tag(tab)
                 }
@@ -228,13 +228,13 @@ public struct HistoryView: View {
     private var emptyList: some View {
         VStack(spacing: 4) {
             if report.recordingSince == nil {
-                Text("No history yet")
+                Text(L10n.text("No history yet"))
                     .font(.system(size: 13, weight: .medium))
-                Text("NetworkMonitor keeps every hour from now on, per app and per network.")
+                Text(L10n.text("NetworkMonitor keeps every hour from now on, per app and per network."))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             } else {
-                Text("Nothing used in this period")
+                Text(L10n.text("Nothing used in this period"))
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -261,7 +261,7 @@ public struct HistoryView: View {
             HistoryListRow(
                 leading: { AnyView(Image(nsImage: model.icon(for: systemSummary))
                     .resizable().frame(width: 18, height: 18)) },
-                title: "System (\(report.systemRows.count))",
+                title: L10n.text("System (\(report.systemRows.count))"),
                 subtitle: nil,
                 bytes: report.systemTotal,
                 fraction: fraction(report.systemTotal, of: largest),
@@ -282,29 +282,29 @@ public struct HistoryView: View {
         ForEach(report.proxyTransports) { row in
             HStack(spacing: 8) {
                 Image(systemName: "arrow.left.arrow.right")
-                Text(row.displayName + " · Proxy transport").lineLimit(1)
+                Text(row.displayName + L10n.text(" · Proxy transport")).lineLimit(1)
                 Spacer()
                 Text(ByteFormat.bytes(row.total)).monospacedDigit()
             }
             .font(.system(size: 12)).foregroundStyle(.secondary)
             .frame(height: 38)
-            .help("Forwarding-process totals are separate from app usage and are omitted from the per-app CSV sum.")
+            .help(L10n.text("Forwarding-process totals are separate from app usage and are omitted from the per-app CSV sum."))
         }
         ForEach(report.legacyApps) { row in
             HStack(spacing: 8) {
                 Image(systemName: "clock.arrow.circlepath")
-                Text(row.displayName + " · Earlier mixed usage").lineLimit(1)
+                Text(row.displayName + L10n.text(" · Earlier mixed usage")).lineLimit(1)
                 Spacer()
                 Text(ByteFormat.bytes(row.total)).monospacedDigit()
             }
             .font(.system(size: 12)).foregroundStyle(.secondary).frame(height: 38)
-            .help("Original mixed interpreter records are preserved separately; they are not added to app usage or the CSV sum.")
+            .help(L10n.text("Original mixed interpreter records are preserved separately; they are not added to app usage or the CSV sum."))
         }
 
     }
 
     private var systemSummary: UsageRow {
-        UsageRow(id: "\u{1}system", displayName: "System", bytesIn: 0, bytesOut: 0,
+        UsageRow(id: "\u{1}system", displayName: L10n.text("System"), bytesIn: 0, bytesOut: 0,
                  bundlePath: nil, isSystem: true, isActive: false)
     }
 
@@ -339,7 +339,7 @@ public struct HistoryView: View {
                 isSelected: model.filter.networkID == network.id,
                 onSelect: { model.toggleNetwork(network.id) })
             .contextMenu {
-                Button("Rename…") {
+                Button(L10n.text("Rename…")) {
                     model.rename(networkID: network.id, defaultLabel: network.defaultLabel,
                                  in: NSApp.keyWindow)
                 }
@@ -370,9 +370,9 @@ public struct HistoryView: View {
 
     private var footer: some View {
         HStack(spacing: 8) {
-            Text("Keep history for")
+            Text(L10n.text("Keep history for"))
                 .font(.system(size: 12))
-            Picker("Keep history for",
+            Picker(L10n.text("Keep history for"),
                    selection: Binding(get: { model.retention },
                                       set: { model.requestRetention($0, in: NSApp.keyWindow) })) {
                 ForEach(HistoryRetention.allCases) { retention in
@@ -382,8 +382,8 @@ public struct HistoryView: View {
             .labelsHidden()
             .fixedSize()
             Spacer()
-            Button("Clear History…") { model.confirmClear(in: NSApp.keyWindow) }
-            Button("Export CSV…") { model.export(in: NSApp.keyWindow) }
+            Button(L10n.text("Clear History…")) { model.confirmClear(in: NSApp.keyWindow) }
+            Button(L10n.text("Export CSV…")) { model.export(in: NSApp.keyWindow) }
         }
     }
 }
@@ -397,6 +397,7 @@ public struct HistoryView: View {
 /// bar, and rounding only the top of the bar, so it still stands square on
 /// the baseline.
 private struct HistoryChart: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var model: HistoryViewModel
 
     private var report: HistoryReport { model.report }
@@ -408,9 +409,9 @@ private struct HistoryChart: View {
     var body: some View {
         Chart {
             ForEach(segments) { segment in
-                BarMark(x: .value("Time", segment.binStart, unit: model.scale.binComponent),
-                        yStart: .value("Bytes", segment.low),
-                        yEnd: .value("Bytes", segment.high),
+                BarMark(x: .value(L10n.text("Time"), segment.binStart, unit: model.scale.binComponent),
+                        yStart: .value(L10n.text("Bytes"), segment.low),
+                        yEnd: .value(L10n.text("Bytes"), segment.high),
                         width: .fixed(barWidth))
                     .foregroundStyle(HistoryPalette.color(for: segment.kind,
                                                           dimmed: isDimmed(segment.binStart)))
@@ -448,7 +449,7 @@ private struct HistoryChart: View {
             }
         }
         .frame(height: HistoryMetrics.chartHeight)
-        .accessibilityLabel("Usage by \(model.scale.binComponent == .hour ? "hour" : model.scale == .year ? "month" : "day")")
+        .accessibilityLabel(L10n.text("Usage by \(model.scale.binComponent == .hour ? "hour" : model.scale == .year ? "month" : "day")"))
     }
 
     // MARK: Geometry
@@ -596,6 +597,7 @@ private struct HistoryChart: View {
 
 /// The hovered bar's figures: the total first, then each network type.
 private struct HistoryTooltip: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let bin: HistoryReport.Bin
     let scale: HistoryScale
     let canOpen: Bool
@@ -619,7 +621,7 @@ private struct HistoryTooltip: View {
                             .frame(width: 8, height: 2)
                         Text(ByteFormat.bytes(bytes))
                             .monospacedDigit()
-                        Text(kind.historyLabel)
+                        Text(L10n.translate(kind.historyLabel))
                             .foregroundStyle(.secondary)
                     }
                     .font(.system(size: 10))
@@ -640,6 +642,7 @@ private struct HistoryTooltip: View {
 /// One row of any of the three lists: something on the left, a name, a bar
 /// for its share, and its figure.
 private struct HistoryListRow: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let leading: () -> AnyView
     let title: String
     let subtitle: String?
@@ -677,7 +680,7 @@ private struct HistoryListRow: View {
                         .lineLimit(1)
                         .truncationMode(.tail)
                     if isMetered {
-                        Text("METERED")
+                        Text(L10n.text("METERED"))
                             .font(.system(size: 8, weight: .bold))
                             .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(Color.orange.opacity(0.2), in: Capsule())
@@ -708,7 +711,7 @@ private struct HistoryListRow: View {
         .contentShape(Rectangle())
         .onHover { hover.isHovering = $0 }
         .onTapGesture(perform: onSelect)
-        .help(isSelected ? "Click to show everything again" : "Click to see only \(title)")
+        .help(isSelected ? L10n.text("Click to show everything again") : L10n.text("Click to see only \(title)"))
     }
 
     /// The row's share of the biggest row. Split by network type, it reads as
@@ -768,6 +771,7 @@ private final class HistoryRowHover: ObservableObject {
 
 /// A network type's chart colour, as a swatch, with its symbol.
 private struct KindBadge: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let kind: NetworkFingerprint.Kind
 
     var body: some View {
@@ -782,6 +786,7 @@ private struct KindBadge: View {
 }
 
 private struct FilterChip: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let label: String
     let onClear: () -> Void
 
@@ -795,7 +800,7 @@ private struct FilterChip: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Show everything again")
+            .help(L10n.text("Show everything again"))
         }
         .font(.system(size: 11))
         .padding(.leading, 8)
@@ -877,10 +882,10 @@ enum HistoryFormat {
 
     static func axisLabel(_ date: Date, scale: HistoryScale) -> String {
         switch scale {
-        case .day:   return date.formatted(.dateTime.hour())
-        case .week:  return date.formatted(.dateTime.weekday(.abbreviated))
-        case .month: return date.formatted(.dateTime.day())
-        case .year:  return date.formatted(.dateTime.month(.abbreviated))
+        case .day:   return date.formatted(.dateTime.hour().locale(L10n.locale))
+        case .week:  return date.formatted(.dateTime.weekday(.abbreviated).locale(L10n.locale))
+        case .month: return date.formatted(.dateTime.day().locale(L10n.locale))
+        case .year:  return date.formatted(.dateTime.month(.abbreviated).locale(L10n.locale))
         }
     }
 
@@ -889,24 +894,26 @@ enum HistoryFormat {
         switch scale {
         case .day:
             let formatter = DateIntervalFormatter()
+            formatter.locale = L10n.locale
             formatter.dateTemplate = "j"
             return formatter.string(from: interval.start, to: interval.end)
         case .week, .month:
-            return interval.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+            return interval.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().locale(L10n.locale))
         case .year:
-            return interval.start.formatted(.dateTime.month(.wide).year())
+            return interval.start.formatted(.dateTime.month(.wide).year().locale(L10n.locale))
         }
     }
 
     /// "Today 09:02 – 12:30", "Oct 21, 22:10 – Oct 22, 07:45".
     static func sessionSpan(_ session: HistorySession) -> String {
         let formatter = DateIntervalFormatter()
+            formatter.locale = L10n.locale
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
         if Calendar.current.isDate(session.start, inSameDayAs: session.end) {
-            let day = Calendar.current.isDateInToday(session.start) ? "Today"
-                : Calendar.current.isDateInYesterday(session.start) ? "Yesterday"
-                : session.start.formatted(.dateTime.month(.abbreviated).day())
+            let day = Calendar.current.isDateInToday(session.start) ? L10n.text("Today")
+                : Calendar.current.isDateInYesterday(session.start) ? L10n.text("Yesterday")
+                : session.start.formatted(.dateTime.month(.abbreviated).day().locale(L10n.locale))
             formatter.dateStyle = .none
             return day + ", " + formatter.string(from: session.start, to: session.end)
         }
@@ -915,8 +922,11 @@ enum HistoryFormat {
 
     /// "3 h 28 min", "12 min", "under a minute".
     static func duration(_ seconds: TimeInterval) -> String {
-        guard seconds >= 60 else { return "under a minute" }
+        guard seconds >= 60 else { return L10n.text("under a minute") }
+        var calendar = Calendar.current
+        calendar.locale = L10n.locale
         let formatter = DateComponentsFormatter()
+        formatter.calendar = calendar
         formatter.allowedUnits = seconds >= 86_400 ? [.day, .hour] : [.hour, .minute]
         formatter.unitsStyle = .abbreviated
         return formatter.string(from: seconds) ?? ""

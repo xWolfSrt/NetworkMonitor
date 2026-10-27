@@ -18,6 +18,7 @@ enum SettingsMetrics {
 // MARK: - General
 
 struct GeneralSettingsPane: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var model: MonitorViewModel
     @ObservedObject var speedTest: SpeedTestController
     @ObservedObject var colors: MenuBarColors
@@ -35,12 +36,23 @@ struct GeneralSettingsPane: View {
     var body: some View {
         Form {
             Section {
-                Toggle("Start at login", isOn: $state.launchAtLogin)
+                Picker(L10n.text("Interface language"), selection: Binding(
+                    get: { language.language }, set: { language.select($0) }
+                )) {
+                    ForEach(AppLanguage.allCases) { value in
+                        Text(value.nativeName).tag(value)
+                    }
+                }
+            } footer: {
+                SettingsFootnote(L10n.text("Changes take effect immediately and are remembered the next time you open NetworkMonitor."))
+            }
+
+            Section {
+                Toggle(L10n.text("Start at login"), isOn: $state.launchAtLogin)
                     .toggleStyle(.switch)
                     .onChange(of: state.launchAtLogin) { enabled in apply(enabled) }
             } footer: {
-                SettingsFootnote("Opens NetworkMonitor automatically when you log in. Quitting "
-                                 + "still quits it — it won't reopen until your next login.")
+                SettingsFootnote(L10n.text("Opens NetworkMonitor automatically when you log in. Quitting still quits it — it won't reopen until your next login."))
             }
 
             // One choice for every speed, so the menu bar and the speed test never
@@ -49,8 +61,8 @@ struct GeneralSettingsPane: View {
                 // In LabeledContent, so the switch sits at the row's right edge
                 // like every other control here. A segmented Picker sized to fit
                 // keeps its label, and stopped short of the edge (#51).
-                LabeledContent("Show speeds in") {
-                    Picker("Show speeds in", selection: $speedTest.unit) {
+                LabeledContent(L10n.text("Show speeds in")) {
+                    Picker(L10n.text("Show speeds in"), selection: $speedTest.unit) {
                         ForEach(SpeedUnit.allCases) { unit in
                             Text(unit.label).tag(unit)
                         }
@@ -60,34 +72,30 @@ struct GeneralSettingsPane: View {
                     .fixedSize()
                 }
             } footer: {
-                SettingsFootnote("In the menu bar and the speed test. Data you've used is "
-                                 + "always counted in MB and GB, the way data plans are sold.")
+                SettingsFootnote(L10n.text("In the menu bar and the speed test. Data you've used is always counted in MB and GB, the way data plans are sold."))
             }
 
             // Wi-Fi names are always on (#85). Nothing to show unless Location
             // was refused, which is the one reason they'd be missing.
             if wifiNames.access == .denied {
                 Section {
-                    LabeledContent("Wi-Fi names") {
-                        Button("Open Location Settings") {
+                    LabeledContent(L10n.text("Wi-Fi names")) {
+                        Button(L10n.text("Open Location Settings")) {
                             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:"
                                 + "com.apple.preference.security?Privacy_LocationServices")!)
                         }
                     }
                 } footer: {
-                    SettingsFootnote("macOS shares a Wi-Fi network's name only with Location "
-                                     + "permission, and it's off for NetworkMonitor. Until it's "
-                                     + "on, networks are named like “Wi-Fi · 3f2a”. NetworkMonitor "
-                                     + "uses it for the name alone, and never looks up where you are.")
+                    SettingsFootnote(L10n.text("macOS shares a Wi-Fi network's name only with Location permission, and it's off for NetworkMonitor. Until it's on, networks are named like “Wi-Fi · 3f2a”. NetworkMonitor uses it for the name alone, and never looks up where you are."))
                 }
             }
 
             // The live rates only (#45). A speed test's colours follow from
             // these, so the two never look alike; they're shown, not offered.
             Section {
-                ColorPicker("Download", selection: binding(\.download), supportsOpacity: false)
-                ColorPicker("Upload", selection: binding(\.upload), supportsOpacity: false)
-                LabeledContent("During a speed test") {
+                ColorPicker(L10n.text("Download"), selection: binding(\.download), supportsOpacity: false)
+                ColorPicker(L10n.text("Upload"), selection: binding(\.upload), supportsOpacity: false)
+                LabeledContent(L10n.text("During a speed test")) {
                     HStack(spacing: 6) {
                         Text("↓")
                         ColorSwatch(color: colors.test.down)
@@ -102,18 +110,17 @@ struct GeneralSettingsPane: View {
                 // on the next click in Settings.
                 HStack {
                     Spacer()
-                    Button("Use Automatic Contrast") { colors.reset() }
+                    Button(L10n.text("Use Automatic Contrast")) { colors.reset() }
                         .disabled(colors.isDefault)
                 }
             } header: {
-                Text("Menu bar colors")
+                Text(L10n.text("Menu bar colors"))
             } footer: {
-                SettingsFootnote("Default live rates use the system's menu bar contrast. Picking a color "
-                                 + "uses custom colors instead. A speed test keeps its own colors.")
+                SettingsFootnote(L10n.text("Default live rates use the system's menu bar contrast. Picking a color uses custom colors instead. A speed test keeps its own colors."))
             }
 
             Section {
-                LabeledContent("Counting since") {
+                LabeledContent(L10n.text("Counting since")) {
                     Text(model.countingSince, format: .dateTime.hour().minute())
                         .monospacedDigit()
                 }
@@ -121,28 +128,26 @@ struct GeneralSettingsPane: View {
                 // point is that the app handles it — but a reader who notices the
                 // list updating every 3 s instead of every 1 s deserves to know
                 // that is deliberate and costs them no accuracy.
-                LabeledContent("Sampling") {
+                LabeledContent(L10n.text("Sampling")) {
                     switch model.profile {
                     case .performance:
-                        Label("Every second, plugged in", systemImage: "bolt.fill")
+                        Label(L10n.text("Every second, plugged in"), systemImage: "bolt.fill")
                     case .balanced:
-                        Label("Every 3 seconds on battery, same totals", systemImage: "battery.75")
+                        Label(L10n.text("Every 3 seconds on battery, same totals"), systemImage: "battery.75")
                     case .saver:
-                        Label("Every 10 seconds in Low Power Mode, same totals", systemImage: "leaf.fill")
+                        Label(L10n.text("Every 10 seconds in Low Power Mode, same totals"), systemImage: "leaf.fill")
                     }
                 }
                 // One button, not two. Usage is bucketed per network internally,
                 // but the popover never names the network, so "this network" vs
                 // "all networks" had no visible referent and only caused doubt.
-                LabeledContent("Start the totals over") {
-                    Button("Reset Now") { model.resetCurrentNetwork() }
+                LabeledContent(L10n.text("Start the totals over")) {
+                    Button(L10n.text("Reset Now")) { model.resetCurrentNetwork() }
                 }
             } header: {
-                Text("Popover totals")
+                Text(L10n.text("Popover totals"))
             } footer: {
-                SettingsFootnote("What this connection has used, per app, all the time. The "
-                                 + "totals start over when you join a different network, and at "
-                                 + "midnight. History keeps every hour of it.")
+                SettingsFootnote(L10n.text("What this connection has used, per app, all the time. The totals start over when you join a different network, and at midnight. History keeps every hour of it."))
             }
 
             if let error = state.errorMessage {
@@ -180,6 +185,7 @@ struct GeneralSettingsPane: View {
 /// A colour shown, not offered: shaped like a colour well, smaller, with
 /// nothing to press.
 private struct ColorSwatch: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let color: NSColor
 
     var body: some View {
@@ -195,6 +201,7 @@ private struct ColorSwatch: View {
 /// The speed test, runnable from Settings as well as from the popover's gauge,
 /// with its one setting beside it.
 struct SpeedTestSettingsPane: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var speedTest: SpeedTestController
 
     var body: some View {
@@ -203,21 +210,18 @@ struct SpeedTestSettingsPane: View {
                 if SpeedTestRunner.isAvailable {
                     SpeedTestPanel(speedTest: speedTest)
                 } else {
-                    Label("This Mac has no networkQuality, which the test runs on.",
+                    Label(L10n.text("This Mac has no networkQuality, which the test runs on."),
                           systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
                 }
             } footer: {
-                SettingsFootnote("Runs macOS's built-in networkQuality, only when you start it: "
-                                 + "download first, then upload. Every run measures afresh, so it "
-                                 + "uses data each time — typically 50–500 MB, more on a very "
-                                 + "fast line. Speeds use the unit chosen in General.")
+                SettingsFootnote(L10n.text("Runs macOS's built-in networkQuality, only when you start it: download first, then upload. Every run measures afresh, so it uses data each time — typically 50–500 MB, more on a very fast line. Speeds use the unit chosen in General."))
             }
 
             Section {
                 // At the row's right edge; see General's speed unit.
-                LabeledContent("Show the test in the popover as") {
-                    Picker("Show the test in the popover as", selection: $speedTest.style) {
+                LabeledContent(L10n.text("Show the test in the popover as")) {
+                    Picker(L10n.text("Show the test in the popover as"), selection: $speedTest.style) {
                         ForEach(SpeedTestStyle.allCases) { style in
                             Text(style.label).tag(style)
                         }
@@ -228,8 +232,8 @@ struct SpeedTestSettingsPane: View {
                 }
             } footer: {
                 SettingsFootnote(speedTest.style == .card
-                                 ? "A card with a dial and every figure, in place of your apps."
-                                 : "Two lines above your apps, which stay in view.")
+                                 ? L10n.text("A card with a dial and every figure, in place of your apps.")
+                                 : L10n.text("Two lines above your apps, which stay in view."))
             }
         }
         .settingsForm()
@@ -239,6 +243,7 @@ struct SpeedTestSettingsPane: View {
 /// The test inside Settings: a button to start it, then the same dial and figures
 /// the popover's card shows.
 private struct SpeedTestPanel: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var speedTest: SpeedTestController
 
     var body: some View {
@@ -250,12 +255,12 @@ private struct SpeedTestPanel: View {
                         .font(.system(size: 26))
                         .foregroundStyle(SpeedTestPalette.download)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Test your internet speed").font(.system(size: 13, weight: .semibold))
-                        Text("Download, upload, ping and jitter, measured now.")
+                        Text(L10n.text("Test your internet speed")).font(.system(size: 13, weight: .semibold))
+                        Text(L10n.text("Download, upload, ping and jitter, measured now."))
                             .font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Test Now") { speedTest.run() }
+                    Button(L10n.text("Test Now")) { speedTest.run() }
                         .keyboardShortcut(.defaultAction)
                 }
                 .padding(.vertical, 4)
@@ -266,25 +271,25 @@ private struct SpeedTestPanel: View {
                         .font(.system(size: 11)).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer()
-                    Button("Cancel") { speedTest.dismiss() }
-                    Button("Run Anyway") { speedTest.confirm() }.keyboardShortcut(.defaultAction)
+                    Button(L10n.text("Cancel")) { speedTest.dismiss() }
+                    Button(L10n.text("Run Anyway")) { speedTest.confirm() }.keyboardShortcut(.defaultAction)
                 }
             case .running(let startedAt):
                 CardBody(live: speedTest.live, result: nil, startedAt: startedAt, unit: speedTest.unit)
                     .frame(width: 320)
-                HStack { Spacer(); Button("Stop") { speedTest.dismiss() } }
+                HStack { Spacer(); Button(L10n.text("Stop")) { speedTest.dismiss() } }
             case .finished(let result):
                 CardBody(live: speedTest.live, result: result, startedAt: nil, unit: speedTest.unit)
                     .frame(width: 320)
                 HStack {
                     Spacer()
-                    Button("Done") { speedTest.dismiss() }
-                    Button("Test Again") { speedTest.run() }.keyboardShortcut(.defaultAction)
+                    Button(L10n.text("Done")) { speedTest.dismiss() }
+                    Button(L10n.text("Test Again")) { speedTest.run() }.keyboardShortcut(.defaultAction)
                 }
             case .failed(let message):
                 Label {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Speed test didn't finish").font(.system(size: 12, weight: .semibold))
+                        Text(L10n.text("Speed test didn't finish")).font(.system(size: 12, weight: .semibold))
                         Text(message).font(.system(size: 11)).foregroundStyle(.secondary)
                     }
                 } icon: {
@@ -293,8 +298,8 @@ private struct SpeedTestPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 HStack {
                     Spacer()
-                    Button("Done") { speedTest.dismiss() }
-                    Button("Try Again") { speedTest.run() }
+                    Button(L10n.text("Done")) { speedTest.dismiss() }
+                    Button(L10n.text("Try Again")) { speedTest.run() }
                 }
             }
         }
@@ -305,6 +310,7 @@ private struct SpeedTestPanel: View {
 // MARK: - Hotspot
 
 struct HotspotSettingsPane: View {
+    @ObservedObject private var language = LanguageSettings.shared
     /// Observed directly: the controller publishes its own state, and reaching it
     /// through a `let` on the view model would neither give a writable binding
     /// for the switch nor redraw when the verdict changes.
@@ -317,7 +323,7 @@ struct HotspotSettingsPane: View {
                 // One switch for the whole feature, Low Data Mode included: it
                 // serves the same purpose, and a second switch would only ask the
                 // user to make the same decision twice.
-                Toggle("Stop apps updating on hotspots", isOn: $metering.isEnabled)
+                Toggle(L10n.text("Stop apps updating on hotspots"), isOn: $metering.isEnabled)
                     .toggleStyle(.switch)
                     .onChange(of: metering.isEnabled) { enabled in
                         // Switching it on is the moment to ask for the helper —
@@ -331,7 +337,7 @@ struct HotspotSettingsPane: View {
                 // feature like this is not knowing whether it decided the
                 // connection counts, and the answer is one line long. Green when
                 // it has decided the connection costs money.
-                LabeledContent("Right now") {
+                LabeledContent(L10n.text("Right now")) {
                     Label(metering.verdict.explanation,
                           systemImage: metering.verdict.isMetered
                               ? "antenna.radiowaves.left.and.right" : "wifi")
@@ -341,8 +347,7 @@ struct HotspotSettingsPane: View {
             } footer: {
                 // Said once, plainly, because Low Data Mode does a little more
                 // than the switch's name: iCloud Photos waits too.
-                SettingsFootnote("Also puts the hotspot in Low Data Mode, so iCloud and other "
-                                 + "background downloads wait until you're off it.")
+                SettingsFootnote(L10n.text("Also puts the hotspot in Low Data Mode, so iCloud and other background downloads wait until you're off it."))
             }
 
             if metering.isEnabled {
@@ -352,7 +357,7 @@ struct HotspotSettingsPane: View {
                     DisclosureGroup(isExpanded: $state.appsExpanded) {
                         ForEach(state.coveredItems) { appToggle($0) }
                         if state.coveredItems.isEmpty && state.listLoaded {
-                            Text("Nothing on this Mac to pause.").foregroundStyle(.secondary)
+                            Text(L10n.text("Nothing on this Mac to pause.")).foregroundStyle(.secondary)
                         }
                     } label: {
                         Text(coverageSummary).togglesDisclosure($state.appsExpanded)
@@ -360,9 +365,7 @@ struct HotspotSettingsPane: View {
                 } footer: {
                     // Where the list comes from and when it acts, said under it
                     // because both are the first things someone new asks.
-                    SettingsFootnote("Found by looking inside the apps on this Mac. They're "
-                                     + "paused only while you're on a hotspot, and put back "
-                                     + "when you leave.")
+                    SettingsFootnote(L10n.text("Found by looking inside the apps on this Mac. They're paused only while you're on a hotspot, and put back when you leave."))
                 }
 
                 // The other half of the honesty the list above owes: what it does
@@ -373,13 +376,11 @@ struct HotspotSettingsPane: View {
                         DisclosureGroup(isExpanded: $state.uncoveredExpanded) {
                             ForEach(state.uncovered) { uncoveredRow($0) }
                         } label: {
-                            Text("Can't be paused (\(state.uncovered.count))")
+                            Text(L10n.text("Can't be paused (\(state.uncovered.count))"))
                                 .togglesDisclosure($state.uncoveredExpanded)
                         }
                     } footer: {
-                        SettingsFootnote("Quit these while you're on a hotspot to be sure they "
-                                         + "don't update. Low Data Mode slows the ones that "
-                                         + "respect it.")
+                        SettingsFootnote(L10n.text("Quit these while you're on a hotspot to be sure they don't update. Low Data Mode slows the ones that respect it."))
                     }
                 }
 
@@ -423,14 +424,14 @@ struct HotspotSettingsPane: View {
             // the flag reading back — the difference between claiming it and it
             // being so.
             Label(metering.lowDataModeConfirmed
-                  ? "Low Data Mode is on — macOS confirms it" : "Low Data Mode is on",
+                  ? L10n.text("Low Data Mode is on — macOS confirms it") : L10n.text("Low Data Mode is on"),
                   systemImage: "checkmark.circle")
                 .foregroundStyle(.green)
         case .alreadyOn:
-            Label("This connection was already in Low Data Mode", systemImage: "checkmark.circle")
+            Label(L10n.text("This connection was already in Low Data Mode"), systemImage: "checkmark.circle")
                 .foregroundStyle(.secondary)
         case .failed(let reason):
-            Label(reason, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+            Label(L10n.translate(reason), systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
         case .off:
             EmptyView()
         }
@@ -447,29 +448,26 @@ struct HotspotSettingsPane: View {
         if metering.helperState != .current {
             if HelperInstaller.canInstall {
                 LabeledContent {
-                    Button("Allow…") { askForHelper() }
+                    Button(L10n.text("Allow…")) { askForHelper() }
                 } label: {
                     Label(metering.helperState == .outdated
-                          ? "macOS updates, Claude, Slack, Canva and Low Data Mode need a quick "
-                            + "update to NetworkMonitor's helper."
-                          : "macOS updates, Claude, Slack, Canva and Low Data Mode need your "
-                            + "permission once.",
+                          ? L10n.text("macOS updates, Claude, Slack, Canva and Low Data Mode need a quick update to NetworkMonitor's helper.")
+                          : L10n.text("macOS updates, Claude, Slack, Canva and Low Data Mode need your permission once."),
                           systemImage: "lock.shield")
                 }
             } else {
                 // The helper's self-heal looks for the app in /Applications and
                 // would remove itself within the hour for a copy anywhere else.
-                Label("Move NetworkMonitor to your Applications folder to pause macOS updates "
-                      + "and use Low Data Mode too.", systemImage: "folder")
+                Label(L10n.text("Move NetworkMonitor to your Applications folder to pause macOS updates and use Low Data Mode too."), systemImage: "folder")
                     .foregroundStyle(.orange)
             }
             if let message = state.helperMessage {
-                Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+                Label(L10n.translate(message), systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
             }
         } else if !metering.failed.isEmpty {
             // Never silently: a tier that refused every call must not keep its
             // apps listed as paused.
-            Label("Couldn't pause " + metering.failed.joined(separator: ", "),
+            Label(L10n.text("Couldn't pause \(metering.failed.joined(separator: ", "))"),
                   systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
         }
@@ -497,8 +495,8 @@ struct HotspotSettingsPane: View {
     @ViewBuilder
     private var gotThrough: some View {
         Text(metering.isSuppressing
-             ? "Got through on this connection"
-             : "Got through on your last metered connection")
+             ? L10n.text("Got through on this connection")
+             : L10n.text("Got through on your last metered connection"))
             .font(.system(size: 12, weight: .medium))
         ForEach(metering.updatesGotThrough) { sighting in
             LabeledContent {
@@ -514,7 +512,7 @@ struct HotspotSettingsPane: View {
     static func label(for sighting: UpdateWatch.Sighting) -> String {
         switch sighting.source {
         case .download:
-            return "\(sighting.name) downloaded an update"
+            return L10n.text("\(sighting.name) downloaded an update")
         case .traffic:
             return sighting.app.map { "\(sighting.name) (\($0))" } ?? sighting.name
         }
@@ -540,7 +538,7 @@ struct HotspotSettingsPane: View {
                 || $0.app == finding.displayName
         }
         if helperWouldCover && !metering.helperInstalled {
-            return "Paused once you allow the helper below"
+            return L10n.text("Paused once you allow the helper below")
         }
         return finding.mechanism.whyNotPaused
     }
@@ -550,11 +548,11 @@ struct HotspotSettingsPane: View {
     /// already, on home Wi-Fi too.
     private var coverageSummary: String {
         // No count until the apps have been looked at, rather than "(0)".
-        guard state.listLoaded else { return "Paused on a hotspot" }
+        guard state.listLoaded else { return L10n.text("Paused on a hotspot") }
         let total = state.coveredItems.count
         let on = state.coveredItems.filter { metering.isSuppressionEnabled(for: $0.id) }.count
-        return on == total ? "Paused on a hotspot (\(total))"
-                           : "Paused on a hotspot (\(on) of \(total))"
+        return on == total ? L10n.text("Paused on a hotspot (\(total))")
+                           : L10n.text("Paused on a hotspot (\(on) of \(total))")
     }
 
     /// One row of the list.
@@ -568,7 +566,7 @@ struct HotspotSettingsPane: View {
             set: { metering.setSuppressionEnabled($0, for: item.id) })) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
-                    Text(item.label)
+                    Text(item.isGroup ? L10n.translate(item.label) : item.label)
                     // Only while a change is really waiting: on a hotspot, for an
                     // app that was open when it was due. Its settings can't be
                     // changed safely while it runs, so the change is made the
@@ -576,11 +574,10 @@ struct HotspotSettingsPane: View {
                     // whenever the app was open, on any network, so quitting and
                     // reopening changed nothing.
                     if metering.deferred.contains(item.label) {
-                        Text("paused once you quit it")
+                        Text(L10n.text("paused once you quit it"))
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
-                            .help("NetworkMonitor can't change \(item.label)'s settings while it's "
-                                  + "open. It pauses its updates as soon as you quit it.")
+                            .help(L10n.text("NetworkMonitor can't change \(item.label)'s settings while it's open. It pauses its updates as soon as you quit it."))
                     }
                 }
                 if item.isGroup {
@@ -589,15 +586,16 @@ struct HotspotSettingsPane: View {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
                         ForEach(item.members) { member in
                             GridRow {
-                                Text(member.name)
+                                Text(["macOS updates", "App Store apps"].contains(member.name)
+                                     ? L10n.translate(member.name) : member.name)
                                     .font(.system(size: 11))
-                                SettingsRowDetail(member.effect)
+                                SettingsRowDetail(L10n.translate(member.effect))
                             }
                         }
                     }
                     .padding(.top, 2)
                 } else {
-                    SettingsRowDetail(item.effect)
+                    SettingsRowDetail(L10n.translate(item.effect))
                 }
             }
         }
@@ -611,15 +609,16 @@ struct HotspotSettingsPane: View {
 /// Who made it, which version this is, where to read more, and the way out —
 /// uninstalling, which lived only on the right-click menu before.
 struct AboutSettingsPane: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let onUninstall: () -> Void
 
     private var version: String {
         let info = Bundle.main.infoDictionary
         guard let short = info?["CFBundleShortVersionString"] as? String else {
-            return "Development build"
+            return L10n.text("Development build")
         }
         let build = info?["CFBundleVersion"] as? String
-        return "Version \(short)" + (build.map { " (\($0))" } ?? "")
+        return L10n.text("Version \(short)") + (build.map { " (\($0))" } ?? "")
     }
 
     var body: some View {
@@ -629,10 +628,10 @@ struct AboutSettingsPane: View {
                     Image(nsImage: NSApp.applicationIconImage)
                         .resizable()
                         .frame(width: 88, height: 88)
-                    Text("NetworkMonitor").font(.system(size: 20, weight: .semibold))
+                    Text(L10n.text("NetworkMonitor")).font(.system(size: 20, weight: .semibold))
                     Text(version).font(.system(size: 12)).foregroundStyle(.secondary)
                         .textSelection(.enabled)
-                    Text("Live network speed in your menu bar, and which app used your data.")
+                    Text(L10n.text("Live network speed in your menu bar, and which app used your data."))
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.top, 2)
@@ -642,23 +641,22 @@ struct AboutSettingsPane: View {
             }
 
             Section {
-                link("Website", "kevinabouhanna.github.io",
+                link(L10n.text("Website"), "kevinabouhanna.github.io",
                      "https://kevinabouhanna.github.io/NetworkMonitor/")
-                link("What's new", "Release notes",
+                link(L10n.text("What's new"), L10n.text("Release notes"),
                      "https://github.com/kevinabouhanna/NetworkMonitor/releases/latest")
-                link("Source code", "On GitHub",
+                link(L10n.text("Source code"), L10n.text("On GitHub"),
                      "https://github.com/kevinabouhanna/NetworkMonitor")
             } footer: {
-                SettingsFootnote("Free and open source, under the MIT licence.")
+                SettingsFootnote(L10n.text("Free and open source, under the MIT licence."))
             }
 
             Section {
-                LabeledContent("Remove NetworkMonitor") {
-                    Button("Uninstall…", role: .destructive) { onUninstall() }
+                LabeledContent(L10n.text("Remove NetworkMonitor")) {
+                    Button(L10n.text("Uninstall…"), role: .destructive) { onUninstall() }
                 }
             } footer: {
-                SettingsFootnote("Puts back every setting it changed, removes its helper and your "
-                                 + "usage history, and moves the app to the Trash.")
+                SettingsFootnote(L10n.text("Puts back every setting it changed, removes its helper and your usage history, and moves the app to the Trash."))
             }
         }
         .settingsForm()
@@ -678,6 +676,7 @@ struct AboutSettingsPane: View {
 /// The plain-words line under a row's name: how an app is paused, or why it
 /// can't be.
 struct SettingsRowDetail: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let text: String
     init(_ text: String) { self.text = text }
 
@@ -691,6 +690,7 @@ struct SettingsRowDetail: View {
 
 /// The line of explanation under a section, as System Settings sets it.
 struct SettingsFootnote: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let text: String
     init(_ text: String) { self.text = text }
 

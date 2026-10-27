@@ -7,11 +7,11 @@ public enum SettingsPane: String, CaseIterable {
 
     public var title: String {
         switch self {
-        case .general:   return "General"
-        case .speedTest: return "Speed Test"
-        case .history:   return "History"
-        case .hotspot:   return "Hotspot"
-        case .about:     return "About"
+        case .general:   return L10n.text("General")
+        case .speedTest: return L10n.text("Speed Test")
+        case .history:   return L10n.text("History")
+        case .hotspot:   return L10n.text("Hotspot")
+        case .about:     return L10n.text("About")
         }
     }
 
@@ -118,6 +118,9 @@ public final class SettingsWindowController: NSObject {
         heightCap.isActive = true
         let center = NotificationCenter.default
         screenObservers = [
+            center.addObserver(forName: .appLanguageDidChange, object: nil, queue: .main) { [weak self] _ in
+                self?.refreshLanguage()
+            },
             center.addObserver(forName: NSWindow.didResizeNotification, object: window, queue: .main) { [weak self] _ in
                 self?.windowDidResize()
             },
@@ -134,6 +137,25 @@ public final class SettingsWindowController: NSObject {
 
     deinit {
         screenObservers.forEach(NotificationCenter.default.removeObserver)
+    }
+
+    private func refreshLanguage() {
+        for (index, pane) in SettingsPane.allCases.enumerated() {
+            let item = tabs.tabViewItems[index]
+            item.label = pane.title
+            item.viewController?.title = pane.title
+            item.image?.accessibilityDescription = pane.title
+        }
+        // NSTabViewController owns the toolbar items. Relabel them in place;
+        // replacing the controller would discard the selected pane and its state.
+        for (index, item) in (window.toolbar?.items ?? []).enumerated() {
+            guard SettingsPane.allCases.indices.contains(index) else { continue }
+            item.label = SettingsPane.allCases[index].title
+            item.paletteLabel = item.label
+        }
+        if let id = tabs.tabView.selectedTabViewItem?.identifier as? String,
+           let pane = SettingsPane(rawValue: id) { window.title = pane.title }
+        DispatchQueue.main.async { [weak self] in self?.fitSelectedPane() }
     }
 
     /// How one pane gives way to the next: at once.
@@ -330,6 +352,7 @@ protocol ScrollingPane: AnyObject {
 
 /// A pane in its scroll view, at the width every pane shares.
 struct PaneScrollView<Content: View>: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var scrolling: PaneScrolling
     let width: CGFloat
     let content: Content
@@ -344,14 +367,14 @@ struct PaneScrollView<Content: View>: View {
     }
 }
 
-private final class PaneHostingController<Content: View>: NSHostingController<PaneScrollView<Content>>,
+private final class PaneHostingController<Content: View>: NSHostingController<LocalizedRoot<PaneScrollView<Content>>>,
                                                         ScrollingPane {
     let scrolling: PaneScrolling
 
     init(_ content: Content, width: CGFloat) {
         let scrolling = PaneScrolling()
         self.scrolling = scrolling
-        super.init(rootView: PaneScrollView(scrolling: scrolling, width: width, content: content))
+        super.init(rootView: LocalizedRoot(PaneScrollView(scrolling: scrolling, width: width, content: content)))
     }
 
     @MainActor required dynamic init?(coder: NSCoder) { fatalError("not used") }

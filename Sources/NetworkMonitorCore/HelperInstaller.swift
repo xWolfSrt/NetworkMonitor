@@ -96,13 +96,12 @@ public enum HelperInstaller {
     public static func install() -> Outcome {
         guard canInstall, let script = setupScript else {
             return .failed(isInRequiredLocation
-                ? "This copy of NetworkMonitor is missing its helper. Download it again."
-                : "Move NetworkMonitor to your Applications folder first.")
+                ? L10n.text("This copy of NetworkMonitor is missing its helper. Download it again.")
+                : L10n.text("Move NetworkMonitor to your Applications folder first."))
         }
         return runAsAdministrator(
             ["/bin/bash", script.path, "install", bundledHelper.path, NSUserName()],
-            prompt: "NetworkMonitor needs your permission once to pause macOS updates "
-                + "and turn on Low Data Mode while you're on a hotspot.")
+            prompt: L10n.text("NetworkMonitor needs your permission once to pause macOS updates and turn on Low Data Mode while you're on a hotspot."))
     }
 
     /// Restores everything the helper changed and removes it. Used by the app's
@@ -113,12 +112,11 @@ public enum HelperInstaller {
                 || FileManager.default.fileExists(atPath: PrivilegedSuppressor.helperPath)
         else { return .done }
         guard let script = setupScript else {
-            return .failed("This copy of NetworkMonitor is missing its uninstaller.")
+            return .failed(L10n.text("This copy of NetworkMonitor is missing its uninstaller."))
         }
         return runAsAdministrator(
             ["/bin/bash", script.path, "uninstall"],
-            prompt: "NetworkMonitor needs your permission to put back the system "
-                + "settings it changed and remove its helper.")
+            prompt: L10n.text("NetworkMonitor needs your permission to put back the system settings it changed and remove its helper."))
     }
 
     // MARK: Running as root
@@ -126,14 +124,14 @@ public enum HelperInstaller {
     static func runAsAdministrator(_ arguments: [String], prompt: String) -> Outcome {
         guard let script = NSAppleScript(source: appleScript(running: arguments,
                                                              prompt: prompt))
-        else { return .failed("Couldn't prepare the administrator request.") }
+        else { return .failed(L10n.text("Couldn't prepare the administrator request.")) }
         var error: NSDictionary?
         script.executeAndReturnError(&error)
         guard let error else { return .done }
         // -128 is AppleScript's "User canceled."
         if (error[NSAppleScript.errorNumber] as? Int) == -128 { return .cancelled }
         return .failed((error[NSAppleScript.errorMessage] as? String)
-                       ?? "The helper could not be installed.")
+                       ?? L10n.text("The helper could not be installed."))
     }
 
     /// The AppleScript for one root command. Public so the quoting — the only

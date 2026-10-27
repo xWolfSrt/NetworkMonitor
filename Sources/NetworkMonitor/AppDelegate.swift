@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var popover: NSPopover!
     private let model = MonitorViewModel()
     private var titleObserver: AnyCancellable?
+    private var languageObserver: AnyCancellable?
     private var popoverMonitor: Any?
     /// Pointer watchers that exist only while a revealed menu bar holds focus
     /// the popover had. See `restoreFocusWhenMenuBarHides()`.
@@ -47,6 +48,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     private var closingPopover = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        languageObserver = NotificationCenter.default.publisher(for: .appLanguageDidChange)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                self.mainMenu = self.makeMainMenu()
+                if NSApp.mainMenu != nil { NSApp.mainMenu = self.mainMenu }
+            }
         setUpStatusItem()
         setUpPopover()
         // Installs predating SMAppService still have a LaunchAgent plist; it
@@ -132,7 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             model: model,
             onSettings: { [weak self] in self?.showSettings() },
             onHistory: { [weak self] in self?.showHistory() })
-        let host = NSHostingController(rootView: root)
+        let host = NSHostingController(rootView: LocalizedRoot(root))
         // Keeps `preferredContentSize` in step with what SwiftUI lays out.
         //
         // Without it the controller reports (0, 0) until after the first show, and
@@ -472,16 +479,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
         if SpeedTestRunner.isAvailable {
             let running = model.speedTest.phase.isRunning
-            menu.addItem(withTitle: running ? "Stop Speed Test" : "Test Internet Speed",
+            menu.addItem(withTitle: running ? L10n.text("Stop Speed Test") : L10n.text("Test Internet Speed"),
                          action: #selector(toggleSpeedTest), keyEquivalent: "")
             // The last result on this connection, as a line to read rather than
             // an item to choose. Gone after a network change; see
             // `SpeedTestController.lastResult`.
             if let result = model.speedTest.lastResult, !running {
-                let time = result.finishedAt.formatted(date: .omitted, time: .shortened)
+                let time = result.finishedAt.formatted(.dateTime.hour().minute().locale(L10n.locale))
                 let unit = model.speedTest.unit
-                let summary = "↓ \(ByteFormat.speed(result.downloadBitsPerSecond, unit: unit))   "
-                    + "↑ \(ByteFormat.speed(result.uploadBitsPerSecond, unit: unit))   at \(time)"
+                let summary = L10n.text("↓ \(ByteFormat.speed(result.downloadBitsPerSecond, unit: unit))   ↑ \(ByteFormat.speed(result.uploadBitsPerSecond, unit: unit))   at \(time)")
                 let item = NSMenuItem(title: summary, action: nil, keyEquivalent: "")
                 item.isEnabled = false
                 menu.addItem(item)
@@ -489,15 +495,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             menu.addItem(.separator())
         }
 
-        menu.addItem(withTitle: "Usage History…",
+        menu.addItem(withTitle: L10n.text("Usage History…"),
                      action: #selector(showHistory), keyEquivalent: "y")
-        menu.addItem(withTitle: "Settings…",
+        menu.addItem(withTitle: L10n.text("Settings…"),
                      action: #selector(showSettings), keyEquivalent: ",")
 
         menu.addItem(.separator())
-        menu.addItem(withTitle: "Uninstall NetworkMonitor…",
+        menu.addItem(withTitle: L10n.text("Uninstall NetworkMonitor…"),
                      action: #selector(uninstall), keyEquivalent: "")
-        menu.addItem(withTitle: "Quit",
+        menu.addItem(withTitle: L10n.text("Quit"),
                      action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         for item in menu.items where item.action != nil { item.target = self }
@@ -537,11 +543,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
 
         let confirm = NSAlert()
         confirm.alertStyle = .warning
-        confirm.messageText = "Uninstall NetworkMonitor?"
-        confirm.informativeText = "Every setting it changed is put back, its helper is "
-            + "removed, your usage history is deleted, and the app is moved to the Trash."
-        confirm.addButton(withTitle: "Uninstall")
-        confirm.addButton(withTitle: "Cancel")
+        confirm.messageText = L10n.text("Uninstall NetworkMonitor?")
+        confirm.informativeText = L10n.text("Every setting it changed is put back, its helper is removed, your usage history is deleted, and the app is moved to the Trash.")
+        confirm.addButton(withTitle: L10n.text("Uninstall"))
+        confirm.addButton(withTitle: L10n.text("Cancel"))
         guard confirm.runModal() == .alertFirstButtonReturn else { return }
 
         switch model.uninstall() {
@@ -553,9 +558,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
         case .failed(let message):
             let failure = NSAlert()
             failure.alertStyle = .critical
-            failure.messageText = "NetworkMonitor couldn't finish uninstalling"
-            failure.informativeText = message + "\n\nNothing was removed, so every "
-                + "setting it changed can still be put back. Try again later."
+            failure.messageText = L10n.text("NetworkMonitor couldn't finish uninstalling")
+            failure.informativeText = message + L10n.text("\n\nNothing was removed, so every setting it changed can still be put back. Try again later.")
             failure.runModal()
         }
     }
@@ -638,34 +642,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
     /// a stand-in window: open after ⌘W without the menu, closed with it). Kept
     /// out of the popover's way: ⌘Q there quitting the app would be a new
     /// behaviour nobody asked for.
-    private lazy var mainMenu: NSMenu = {
+    private lazy var mainMenu: NSMenu = makeMainMenu()
+
+    private func makeMainMenu() -> NSMenu {
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About NetworkMonitor",
+        appMenu.addItem(withTitle: L10n.text("About NetworkMonitor"),
                         action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Settings…",
+        appMenu.addItem(withTitle: L10n.text("Settings…"),
                         action: #selector(showSettings), keyEquivalent: ",").target = self
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide NetworkMonitor",
+        appMenu.addItem(withTitle: L10n.text("Hide NetworkMonitor"),
                         action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: "Hide Others",
+        appMenu.addItem(withTitle: L10n.text("Hide Others"),
                         action: #selector(NSApplication.hideOtherApplications(_:)),
                         keyEquivalent: "h").keyEquivalentModifierMask = [.command, .option]
-        appMenu.addItem(withTitle: "Show All",
+        appMenu.addItem(withTitle: L10n.text("Show All"),
                         action: #selector(NSApplication.unhideAllApplications(_:)),
                         keyEquivalent: "")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit NetworkMonitor",
+        appMenu.addItem(withTitle: L10n.text("Quit NetworkMonitor"),
                         action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
-        let windowMenu = NSMenu(title: "Window")
-        windowMenu.addItem(withTitle: "Close",
+        let windowMenu = NSMenu(title: L10n.text("Window"))
+        windowMenu.addItem(withTitle: L10n.text("Close"),
                            action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        windowMenu.addItem(withTitle: "Minimize",
+        windowMenu.addItem(withTitle: L10n.text("Minimize"),
                            action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(.separator())
-        windowMenu.addItem(withTitle: "Usage History",
+        windowMenu.addItem(withTitle: L10n.text("Usage History"),
                            action: #selector(showHistory), keyEquivalent: "y").target = self
 
         let menuBar = NSMenu()
@@ -675,7 +681,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate, NSW
             menuBar.addItem(item)
         }
         return menuBar
-    }()
+    }
 
     /// Centres a window, keeping its title bar clear of the menu bar.
     ///

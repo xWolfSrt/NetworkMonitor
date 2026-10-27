@@ -43,33 +43,28 @@ enum SpeedTestPalette {
     /// conversation is 150 ms, and an idle ping has already spent part of that.
     static func loadNote(_ result: SpeedTestResult) -> String? {
         guard let rise = result.loadedPingIncrease, rise >= 100 else { return nil }
-        return "Ping rises by \(Int(rise.rounded())) ms when the line is busy, "
-            + "so calls may lag during big downloads"
+        return L10n.text("Ping rises by \(Int(rise.rounded())) ms when the line is busy, so calls may lag during big downloads")
     }
 
     /// What each figure means, for its tooltip.
-    static let pingHelp = "Round trip to the test server on a quiet line. "
-        + "Under 50 ms is great; over 100 ms is noticeable in calls and games."
-    static let jitterHelp = "How much ping varies from one moment to the next. "
-        + "Under 10 ms is good; more makes calls choppy."
-    static let loadedHelp = "Ping measured while the test fills the line. A big rise over "
-        + "the quiet-line ping means calls and games lag whenever something downloads or uploads."
+    static var pingHelp: String { L10n.text("Round trip to the test server on a quiet line. Under 50 ms is great; over 100 ms is noticeable in calls and games.") }
+    static var jitterHelp: String { L10n.text("How much ping varies from one moment to the next. Under 10 ms is good; more makes calls choppy.") }
+    static var loadedHelp: String { L10n.text("Ping measured while the test fills the line. A big rise over the quiet-line ping means calls and games lag whenever something downloads or uploads.") }
 
     /// "Google Chrome used 12.4 MB during the test", or two apps, or "and 3 others".
     static func contentionNote(_ result: SpeedTestResult) -> String {
         let top = result.competingTraffic.prefix(2).map(\.displayName)
         let rest = result.competingTraffic.count - top.count
-        var names = top.joined(separator: " and ")
-        if rest > 0 { names = top.joined(separator: ", ") + " and \(rest) more" }
-        return "\(names) used \(ByteFormat.bytes(result.competingBytes)) during the test — "
-            + "figures may read low"
+        var names = top.joined(separator: L10n.text(" and "))
+        if rest > 0 { names = top.joined(separator: ", ") + L10n.text(" and \(rest) more") }
+        return L10n.text("\(names) used \(ByteFormat.bytes(result.competingBytes)) during the test — figures may read low")
     }
 
     static func meteredNote(_ estimate: Int64?) -> String {
         if let estimate {
-            return "Metered connection. The last test here used \(ByteFormat.bytes(estimate))."
+            return L10n.text("Metered connection. The last test here used \(ByteFormat.bytes(estimate)).")
         }
-        return "Metered connection. A test can use 100 MB or more on a fast line."
+        return L10n.text("Metered connection. A test can use 100 MB or more on a fast line.")
     }
 }
 
@@ -80,6 +75,7 @@ enum SpeedTestPalette {
 /// When the card has been put away mid-test, the button carries the live
 /// reading and brings the card back, so a test sent out of sight is never lost.
 struct SpeedTestButton: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var speedTest: SpeedTestController
 
     private var isHiddenRun: Bool {
@@ -102,13 +98,14 @@ struct SpeedTestButton: View {
         .foregroundStyle(speedTest.phase == .idle
                          ? AnyShapeStyle(.secondary) : AnyShapeStyle(SpeedTestPalette.download))
         .disabled(speedTest.phase.isRunning && !isHiddenRun)
-        .help(isHiddenRun ? "Show the speed test"
-              : speedTest.phase.isRunning ? "Speed test running" : "Test internet speed")
+        .help(isHiddenRun ? L10n.text("Show the speed test")
+              : speedTest.phase.isRunning ? L10n.text("Speed test running") : L10n.text("Test internet speed"))
     }
 }
 
 /// "↓ 17.2" beside the gauge while a hidden test runs.
 private struct HeaderLiveReading: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var live: SpeedTestController.Live
     let unit: SpeedUnit
 
@@ -132,6 +129,7 @@ private struct HeaderLiveReading: View {
 /// arrive, so the result lands in place instead of the card rearranging itself
 /// at the moment the user is reading it.
 struct SpeedTestCard: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var speedTest: SpeedTestController
 
     var body: some View {
@@ -145,22 +143,22 @@ struct SpeedTestCard: View {
                 CardBody(live: speedTest.live, result: nil, startedAt: startedAt,
                          unit: speedTest.unit)
                 Spacer(minLength: 0)
-                buttons(primary: "Stop", primaryAction: { speedTest.dismiss() })
+                buttons(primary: L10n.text("Stop"), primaryAction: { speedTest.dismiss() })
             case .finished(let result):
                 CardBody(live: speedTest.live, result: result, startedAt: nil,
                          unit: speedTest.unit)
                 Spacer(minLength: 0)
-                buttons(primary: "Test Again", primaryAction: { speedTest.run() })
+                buttons(primary: L10n.text("Test Again"), primaryAction: { speedTest.run() })
             case .failed(let message):
                 Spacer()
                 Image(systemName: "exclamationmark.triangle.fill")
                     .font(.system(size: 28)).foregroundStyle(.orange)
-                Text("Speed test didn't finish")
+                Text(L10n.text("Speed test didn't finish"))
                     .font(.system(size: 13, weight: .semibold)).padding(.top, 8)
-                Text(message).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(L10n.translate(message)).font(.system(size: 11)).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).padding(.horizontal, 24).padding(.top, 2)
                 Spacer()
-                buttons(primary: "Try Again", primaryAction: { speedTest.run() })
+                buttons(primary: L10n.text("Try Again"), primaryAction: { speedTest.run() })
             }
         }
         .padding(.top, 10)
@@ -174,7 +172,7 @@ struct SpeedTestCard: View {
             Spacer()
             Image(systemName: "antenna.radiowaves.left.and.right")
                 .font(.system(size: 26)).foregroundStyle(.orange)
-            Text("Test on a metered connection?")
+            Text(L10n.text("Test on a metered connection?"))
                 .font(.system(size: 13, weight: .semibold))
             Text(SpeedTestPalette.meteredNote(estimate))
                 .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -182,7 +180,7 @@ struct SpeedTestCard: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 16)
             Spacer()
-            buttons(primary: "Run Anyway", primaryAction: { speedTest.confirm() })
+            buttons(primary: L10n.text("Run Anyway"), primaryAction: { speedTest.confirm() })
         }
     }
 
@@ -190,7 +188,7 @@ struct SpeedTestCard: View {
         HStack {
             // Leaves the card, never the test: a run in progress carries on and
             // the header button brings it back. Stop is the button that stops.
-            Button("Back to Apps") { speedTest.hide() }
+            Button(L10n.text("Back to Apps")) { speedTest.hide() }
                 .controlSize(.small)
             Spacer()
             Button(primary, action: primaryAction)
@@ -211,6 +209,7 @@ struct SpeedTestCard: View {
 /// phase, so the popover never resizes as the test moves along; see
 /// `PopoverMetrics.speedStripHeight`.
 struct SpeedTestStrip: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var speedTest: SpeedTestController
 
     var body: some View {
@@ -224,13 +223,13 @@ struct SpeedTestStrip: View {
                 StripBody(live: speedTest.live, result: nil, startedAt: startedAt,
                           unit: speedTest.unit) {
                     // No "Back to Apps" here: the apps never left.
-                    iconButton("stop.circle.fill", "Stop the test") { speedTest.dismiss() }
+                    iconButton("stop.circle.fill", L10n.text("Stop the test")) { speedTest.dismiss() }
                 }
             case .finished(let result):
                 StripBody(live: speedTest.live, result: result, startedAt: nil,
                           unit: speedTest.unit) {
-                    iconButton("arrow.clockwise", "Test again") { speedTest.run() }
-                    iconButton("xmark", "Close") { speedTest.hide() }
+                    iconButton("arrow.clockwise", L10n.text("Test again")) { speedTest.run() }
+                    iconButton("xmark", L10n.text("Close")) { speedTest.hide() }
                 }
             case .failed(let message):
                 failed(message)
@@ -250,8 +249,8 @@ struct SpeedTestStrip: View {
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
-                Button("Cancel") { speedTest.dismiss() }.controlSize(.small)
-                Button("Run Anyway") { speedTest.confirm() }
+                Button(L10n.text("Cancel")) { speedTest.dismiss() }.controlSize(.small)
+                Button(L10n.text("Run Anyway")) { speedTest.confirm() }
                     .controlSize(.small)
                     .keyboardShortcut(.defaultAction)
             }
@@ -263,16 +262,16 @@ struct SpeedTestStrip: View {
         VStack(alignment: .leading, spacing: 8) {
             Label {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Speed test didn't finish").font(.system(size: 12, weight: .semibold))
-                    Text(message).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
+                    Text(L10n.text("Speed test didn't finish")).font(.system(size: 12, weight: .semibold))
+                    Text(L10n.translate(message)).font(.system(size: 10.5)).foregroundStyle(.secondary).lineLimit(1)
                 }
             } icon: {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
             }
             HStack {
                 Spacer()
-                Button("Close") { speedTest.dismiss() }.controlSize(.small)
-                Button("Try Again") { speedTest.run() }.controlSize(.small)
+                Button(L10n.text("Close")) { speedTest.dismiss() }.controlSize(.small)
+                Button(L10n.text("Try Again")) { speedTest.run() }.controlSize(.small)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -295,6 +294,7 @@ struct SpeedTestStrip: View {
 /// The compact lines and their caption. The only part of the strip that watches
 /// `live`, for the reason `CardBody` is the only part of the card that does.
 private struct StripBody<Trailing: View>: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var live: SpeedTestController.Live
     let result: SpeedTestResult?
     let startedAt: Date?
@@ -308,8 +308,8 @@ private struct StripBody<Trailing: View>: View {
         let scale = SpeedTestPalette.scaleMbps(for: down, up)
 
         VStack(alignment: .leading, spacing: 6) {
-            lane("arrow.down", "Download", down, SpeedTestPalette.download, scale)
-            lane("arrow.up", "Upload", up, SpeedTestPalette.upload, scale)
+            lane("arrow.down", L10n.text("Download"), down, SpeedTestPalette.download, scale)
+            lane("arrow.up", L10n.text("Upload"), up, SpeedTestPalette.upload, scale)
             HStack(spacing: 6) {
                 caption(progress)
                     .font(.system(size: 10))
@@ -361,18 +361,18 @@ private struct StripBody<Trailing: View>: View {
 
     private func caption(_ progress: SpeedTestProgress) -> Text {
         if let result {
-            var parts = ["Ping " + SpeedTestPalette.milliseconds(result.ping),
-                         "Jitter " + SpeedTestPalette.milliseconds(result.jitter)]
+            var parts = [L10n.text("Ping ") + SpeedTestPalette.milliseconds(result.ping),
+                         L10n.text("Jitter ") + SpeedTestPalette.milliseconds(result.jitter)]
             parts.append(result.finishedAt.formatted(date: .omitted, time: .shortened))
             return Text(parts.joined(separator: " · "))
         }
         guard let startedAt else { return Text("") }
         let stage: String
         switch progress.stage {
-        case .starting:  stage = "Measuring ping"
-        case .download:  stage = "Testing download"
-        case .upload:    stage = "Testing upload"
-        case .finishing: stage = "Measuring ping"
+        case .starting:  stage = L10n.text("Measuring ping")
+        case .download:  stage = L10n.text("Testing download")
+        case .upload:    stage = L10n.text("Testing upload")
+        case .finishing: stage = L10n.text("Measuring ping")
         }
         return Text("\(stage) · ") + Text(startedAt, style: .timer)
             + Text(" · \(ByteFormat.bytes(progress.bytesTransferred))")
@@ -382,6 +382,7 @@ private struct StripBody<Trailing: View>: View {
 /// Dial, caption, tiles and note — fed by the live readings while running and
 /// by the result once there is one. The only view that watches `live`.
 struct CardBody: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var live: SpeedTestController.Live
     let result: SpeedTestResult?
     let startedAt: Date?
@@ -398,8 +399,8 @@ struct CardBody: View {
         VStack(spacing: 0) {
             SpeedDial(download: down, upload: up, unit: unit, showsUpload: showsUpload)
             HStack(spacing: 16) {
-                legend("Download", down, SpeedTestPalette.download)
-                legend("Upload", up, SpeedTestPalette.upload)
+                legend(L10n.text("Download"), down, SpeedTestPalette.download)
+                legend(L10n.text("Upload"), up, SpeedTestPalette.upload)
             }
             .padding(.top, 6)
             caption(progress)
@@ -412,16 +413,16 @@ struct CardBody: View {
             // wait as dashes and fill in place.
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
-                    tile("Ping", SpeedTestPalette.milliseconds(result?.ping),
+                    tile(L10n.text("Ping"), SpeedTestPalette.milliseconds(result?.ping),
                          help: SpeedTestPalette.pingHelp)
-                    tile("Jitter", SpeedTestPalette.milliseconds(result?.jitter),
+                    tile(L10n.text("Jitter"), SpeedTestPalette.milliseconds(result?.jitter),
                          help: SpeedTestPalette.jitterHelp)
                 }
                 HStack(spacing: 8) {
-                    tile("Ping while downloading",
+                    tile(L10n.text("Ping while downloading"),
                          SpeedTestPalette.milliseconds(result?.downloadPing),
                          help: SpeedTestPalette.loadedHelp)
-                    tile("Ping while uploading",
+                    tile(L10n.text("Ping while uploading"),
                          SpeedTestPalette.milliseconds(result?.uploadPing),
                          help: SpeedTestPalette.loadedHelp)
                 }
@@ -436,17 +437,17 @@ struct CardBody: View {
         if let result {
             var parts: [String] = []
             if let kind = result.interfaceKind { parts.append(kind) }
-            parts.append("used " + ByteFormat.bytes(result.bytesTransferred))
+            parts.append(L10n.text("used ") + ByteFormat.bytes(result.bytesTransferred))
             parts.append(result.finishedAt.formatted(date: .omitted, time: .shortened))
             return AnyView(Text(parts.joined(separator: " · ")))
         }
         guard let startedAt else { return AnyView(EmptyView()) }
         let stage: String
         switch progress.stage {
-        case .starting: stage = "Measuring ping"
-        case .download: stage = "Testing download"
-        case .upload:   stage = "Testing upload"
-        case .finishing: stage = "Measuring ping"
+        case .starting: stage = L10n.text("Measuring ping")
+        case .download: stage = L10n.text("Testing download")
+        case .upload:   stage = L10n.text("Testing upload")
+        case .finishing: stage = L10n.text("Measuring ping")
         }
         return AnyView(Text("\(stage) · ") + Text(startedAt, style: .timer)
                        + Text(" · \(ByteFormat.bytes(progress.bytesTransferred))"))
@@ -467,7 +468,7 @@ struct CardBody: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         } else if result == nil {
-            Text("Download first, then upload, like any speed test")
+            Text(L10n.text("Download first, then upload, like any speed test"))
                 .font(.system(size: 10))
                 .foregroundStyle(.tertiary)
         }
@@ -501,6 +502,7 @@ struct CardBody: View {
 /// A half-circle gauge: download on the outer arc, upload on the inner, the
 /// scale printed just outside so nothing crowds the figure in the middle.
 struct SpeedDial: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let download: Double
     let upload: Double
     let unit: SpeedUnit

@@ -53,10 +53,10 @@ public enum HistoryRetention: String, CaseIterable, Identifiable {
 
     public var label: String {
         switch self {
-        case .oneMonth:    return "1 Month"
-        case .threeMonths: return "3 Months"
-        case .oneYear:     return "1 Year"
-        case .forever:     return "Forever"
+        case .oneMonth:    return L10n.text("1 Month")
+        case .threeMonths: return L10n.text("3 Months")
+        case .oneYear:     return L10n.text("1 Year")
+        case .forever:     return L10n.text("Forever")
         }
     }
 

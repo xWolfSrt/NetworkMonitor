@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 public struct MenuBarPopoverView: View {
+    @ObservedObject private var language = LanguageSettings.shared
     @ObservedObject var model: MonitorViewModel
     /// Observed for its phase only, which changes a few times per test. The
     /// five-a-second readings live on `speedTest.live`, which only the gauges
@@ -32,11 +33,11 @@ public struct MenuBarPopoverView: View {
         let total = sightings.reduce(0) { $0 + $1.bytes }
         if sightings.count == 1 {
             let what = first.source == .download
-                ? "\(first.name) downloaded an update"
-                : "\(first.name) is updating"
+                ? L10n.text("\(first.name) downloaded an update")
+                : L10n.text("\(first.name) is updating")
             return "\(what) · \(ByteFormat.bytes(total))"
         }
-        return "\(sightings.count) updates got through · \(ByteFormat.bytes(total))"
+        return L10n.text("\(sightings.count) updates got through · \(ByteFormat.bytes(total))")
     }
 
     private var showsCard: Bool {
@@ -131,8 +132,8 @@ public struct MenuBarPopoverView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
-                Text("Total")
-                    .help("Physical internet traffic. App usage and proxy transport measure different stages and must not be added together.")
+                Text(L10n.text("Total"))
+                    .help(L10n.text("Physical internet traffic. App usage and proxy transport measure different stages and must not be added together."))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                 // The badge sits on the figure's row, not the header's: it
@@ -145,7 +146,7 @@ public struct MenuBarPopoverView: View {
                     if model.isExpensiveNetwork {
                         // Surfaced because metered networks are the case where
                         // this connection's total actually matters.
-                        Text("METERED")
+                        Text(L10n.text("METERED"))
                             .font(.system(size: 9, weight: .bold))
                             .padding(.horizontal, 5).padding(.vertical, 2)
                             .background(Color.orange.opacity(0.2), in: Capsule())
@@ -153,10 +154,10 @@ public struct MenuBarPopoverView: View {
                     }
                 }
                 if !model.proxyTransportRows.isEmpty, let since = model.proxyAttributionStartedAt {
-                    Text("Proxy attribution since " + since.formatted(.dateTime.month().day().hour().minute()))
+                    Text(L10n.text("Proxy attribution since ") + since.formatted(.dateTime.month().day().hour().minute().locale(L10n.locale)))
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                         .lineLimit(1)
-                        .help("Earlier proxy traffic is kept as an aggregate; it cannot be reassigned to past apps.")
+                        .help(L10n.text("Earlier proxy traffic is kept as an aggregate; it cannot be reassigned to past apps."))
                 }
                 if let summary = gotThroughSummary {
                     HStack(spacing: 4) {
@@ -167,30 +168,27 @@ public struct MenuBarPopoverView: View {
                     }
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
-                    .help("Downloaded over this connection anyway. Settings › Hotspot "
-                          + "lists what NetworkMonitor can't stop.")
+                    .help(L10n.text("Downloaded over this connection anyway. Settings › Hotspot lists what NetworkMonitor can't stop."))
                 }
                 if let failure = model.perAppFailure {
                     // Grey, not orange: the total above is still right. Only the
                     // list has stopped, and saying so beats a list gone quiet.
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle")
-                        Text("Per-app figures paused")
+                        Text(L10n.text("Per-app figures paused"))
                     }
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                    .help("macOS's nettop couldn't start (\(failure)). The total is still "
-                          + "counted, and NetworkMonitor keeps trying.")
+                    .help(L10n.text("macOS's nettop couldn't start (\(failure)). The total is still counted, and NetworkMonitor keeps trying."))
                 }
                 if let failure = model.proxyAttributionFailure {
                     HStack(spacing: 4) {
                         Image(systemName: "exclamationmark.triangle")
-                        Text("Proxy attribution figures paused")
+                        Text(L10n.text("Proxy attribution figures paused"))
                     }
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
-                    .help("macOS's nettop couldn't start (\(failure)). The total is still "
-                          + "counted, and NetworkMonitor keeps trying.")
+                    .help(L10n.text("macOS's nettop couldn't start (\(failure)). The total is still counted, and NetworkMonitor keeps trying."))
                 }
             }
             Spacer()
@@ -204,13 +202,13 @@ public struct MenuBarPopoverView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Usage History")
+            .help(L10n.text("Usage History"))
             Button(action: onSettings) {
                 Image(systemName: "gearshape.fill").font(.system(size: 12))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Settings")
+            .help(L10n.text("Settings"))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -287,22 +285,22 @@ public struct MenuBarPopoverView: View {
     }
 
     private func legacyRow(_ row: UsageRow) -> some View {
-        let labelled = UsageRow(id: row.id, displayName: row.displayName + " · Earlier mixed usage",
+        let labelled = UsageRow(id: row.id, displayName: row.displayName + L10n.text(" · Earlier mixed usage"),
             bytesIn: row.bytesIn + row.children.reduce(0) { $0 + $1.bytesIn },
             bytesOut: row.bytesOut + row.children.reduce(0) { $0 + $1.bytesOut },
             bundlePath: row.bundlePath, isSystem: row.isSystem, isActive: false)
         return AppRowView(row: labelled, icon: model.icon(for: row), fraction: 0, isMuted: true)
-            .help("Kept from before Headroom was identified separately. These mixed bytes cannot be reassigned safely and are outside current app totals.")
+            .help(L10n.text("Kept from before Headroom was identified separately. These mixed bytes cannot be reassigned safely and are outside current app totals."))
     }
 
     private func proxyTransportRow(_ row: UsageRow) -> some View {
-        let labelled = UsageRow(id: row.id, displayName: row.displayName + " · Proxy transport",
+        let labelled = UsageRow(id: row.id, displayName: row.displayName + L10n.text(" · Proxy transport"),
                                 bytesIn: row.bytesIn + row.children.reduce(0) { $0 + $1.bytesIn },
                                 bytesOut: row.bytesOut + row.children.reduce(0) { $0 + $1.bytesOut },
                                 bundlePath: row.bundlePath, isSystem: row.isSystem,
                                 isActive: row.isActive)
         return AppRowView(row: labelled, icon: model.icon(for: row), fraction: 0, isMuted: true)
-            .help("Includes traffic forwarded for other apps. Shown separately, not added to app usage again.")
+            .help(L10n.text("Includes traffic forwarded for other apps. Shown separately, not added to app usage again."))
     }
 
     /// Daemons are collapsed by default. mDNSResponder alone was measured at
@@ -317,7 +315,7 @@ public struct MenuBarPopoverView: View {
         // Own bytes stay zero and the daemons hang off it as children, so
         // `total` is the group's total without stating it twice.
         let summary = UsageRow(id: "\u{1}system",
-                               displayName: "System (\(model.systemRows.count))",
+                               displayName: L10n.text("System (\(model.systemRows.count))"),
                                bytesIn: 0, bytesOut: 0,
                                bundlePath: nil, isSystem: true,
                                isActive: model.systemRows.contains(where: \.isActive),
@@ -346,9 +344,9 @@ public struct MenuBarPopoverView: View {
     /// message in a 320 pt window was mostly empty space.
     private var emptyState: some View {
         VStack(spacing: 4) {
-            Text("No network activity yet")
+            Text(L10n.text("No network activity yet"))
                 .font(.system(size: 12)).foregroundStyle(.secondary)
-            Text("Counting since you joined this network")
+            Text(L10n.text("Counting since you joined this network"))
                 .font(.system(size: 10)).foregroundStyle(.tertiary)
         }
         .frame(maxWidth: .infinity)
@@ -523,6 +521,7 @@ public enum PopoverMetrics {
 }
 
 private struct AppRowView: View {
+    @ObservedObject private var language = LanguageSettings.shared
     let row: UsageRow
     let icon: NSImage
     /// This row's share of everything the list accounts for, 0...1.

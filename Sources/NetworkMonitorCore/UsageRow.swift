@@ -92,7 +92,7 @@ extension UsageRow {
         let rest = sorted.dropFirst(maxChildrenShown - 1)
         let other = UsageRow(
             id: "\(parentKey)\u{1}\u{1}other",
-            displayName: "Other (\(rest.count))",
+            displayName: L10n.text("Other (\(rest.count))"),
             bytesIn: rest.reduce(0) { $0 + $1.bytesIn },
             bytesOut: rest.reduce(0) { $0 + $1.bytesOut },
             bundlePath: nil,

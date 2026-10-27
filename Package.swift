@@ -7,6 +7,7 @@ import PackageDescription
 
 let package = Package(
     name: "NetworkMonitor",
+    defaultLocalization: "en",
     platforms: [.macOS(.v13)],
     targets: [
         // Everything testable lives in NetworkMonitorCore. The executable is a
@@ -14,7 +15,8 @@ let package = Package(
         .target(
             name: "NetworkMonitorCore",
             dependencies: ["LowDataMode"],
-            path: "Sources/NetworkMonitorCore"
+            path: "Sources/NetworkMonitorCore",
+            resources: [.process("Resources")]
         ),
         .executableTarget(
             name: "NetworkMonitor",

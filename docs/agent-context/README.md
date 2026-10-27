@@ -10,3 +10,5 @@ The existing `docs/README.md` indexes the detailed upstream architecture and fea
 For the current proxy feature, read `proxy-attribution.md` before changing sampling, accounting, storage or display.
 
 For runtime naming, Headroom forwarding or earlier mixed Python records, read `headroom-accounting.md`.
+
+For UI language work, read `localization.md`.
