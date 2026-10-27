@@ -45,6 +45,7 @@ public final class NettopStream {
     private let queue = DispatchQueue(label: "com.networkmonitor.nettop")
 
     private var process: Process?
+    private var textDecoder = NettopTextDecoder()
     private var parser: NettopParser
     private var stopping = false
     private var restartDelay: TimeInterval = 1
@@ -257,6 +258,7 @@ public final class NettopStream {
         task.standardInput = FileHandle(fileDescriptor: stdinFDs[0], closeOnDealloc: false)
 
         parser.resetForRestart()
+        textDecoder.reset()
         masterFD = master
         stdinWriteFD = stdinFDs[1]
 
@@ -298,10 +300,7 @@ public final class NettopStream {
 
         if count > 0 {
             refreshProxyEndpoints()
-            // A pipe carries exactly what nettop wrote, but stripping CR stays as
-            // cheap insurance against one ending up inside a parsed field.
-            let bytes = buffer[0..<count].filter { $0 != 0x0D }
-            guard let text = String(bytes: bytes, encoding: .utf8) else { return }
+            let text = textDecoder.consume(Data(buffer[0..<count]))
             let samples = parser.consume(text)
             publishProxyProcesses()
             for sample in samples { deliver(sample) }
@@ -341,7 +340,8 @@ public final class NettopStream {
         let work = DispatchWorkItem { [weak self] in
             guard let self, !self.stopping else { return }
             self.quietFlush = nil
-            if let sample = self.parser.closeOnQuiet() { self.deliver(sample) }
+            if !self.textDecoder.hasPartialLine,
+               let sample = self.parser.closeOnQuiet() { self.deliver(sample) }
             self.publishProxyProcesses()
         }
         quietFlush = work
@@ -355,6 +355,7 @@ public final class NettopStream {
     }
 
     private func teardown() {
+        textDecoder.reset()
         quietFlush?.cancel()
         quietFlush = nil
         readSource?.cancel()   // cancel handler closes masterFD
